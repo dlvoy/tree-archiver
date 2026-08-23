@@ -17,6 +17,7 @@ export type Compression = "none" | "gzip";
 /** How much of a file's original path is kept inside the archive. */
 export type PathMode = "foldersOnly" | "commonRoot" | "fullPath";
 export type ThemePreference = "system" | "light" | "dark";
+export type LanguagePreference = "system" | "en" | "pl" | "de";
 
 export interface NodeView {
   id: NodeId;
@@ -75,6 +76,7 @@ export interface OutputOptions {
 export interface Settings {
   version: number;
   theme: ThemePreference;
+  language: LanguagePreference;
   sort: SortKey;
   output: OutputOptions;
 }
@@ -144,6 +146,11 @@ export interface LogEntry {
   ts: string;
   level: LogLevel;
   path: string;
+  /** Translation key, so the line can be shown in the chosen language. */
+  key: string;
+  /** Values the key interpolates. */
+  args: Record<string, string>;
+  /** English rendering — what the saved log file holds, and the fallback. */
   message: string;
 }
 
@@ -223,6 +230,16 @@ export const cancelScan = () => invoke<void>("cancel_scan");
 
 export const saveLog = (path: string) => invoke<number>("save_log", { path });
 
+// ------------------------------------------------------------ explorer menu
+
+export const explorerStatus = () => invoke<boolean>("explorer_status");
+
+/** `label` is the menu text, already translated. */
+export const explorerInstall = (label: string) =>
+  invoke<boolean>("explorer_install", { label });
+
+export const explorerUninstall = () => invoke<boolean>("explorer_uninstall");
+
 // ---------------------------------------------------------------- events
 
 export const onScanProgress = (fn: (p: ScanProgress) => void) =>
@@ -234,8 +251,22 @@ export const onScanDone = (fn: () => void) =>
 export const onArchiveProgress = (fn: (p: ArchiveProgress) => void) =>
   listen<ArchiveProgress>("archive://progress", (e) => fn(e.payload));
 
-export const onArchiveLog = (fn: (e: LogEntry) => void) =>
-  listen<LogEntry>("archive://log", (e) => fn(e.payload));
+/**
+ * Log lines arrive in batches. Every file added produces one, so a message per
+ * line would swamp the bridge on a large archive.
+ */
+export const onArchiveLog = (fn: (entries: LogEntry[]) => void) =>
+  listen<LogEntry[]>("archive://log", (e) => fn(e.payload));
+
+/** A rebuild the window did not ask for — paths arriving from File Explorer. */
+export const onTreeUpdated = (fn: (u: TreeUpdate) => void) =>
+  listen<TreeUpdate>("tree://updated", (e) => fn(e.payload));
+
+export const onTreeError = (fn: (message: string) => void) =>
+  listen<string>("tree://error", (e) => fn(e.payload));
+
+export const onTreeScanning = (fn: (busy: boolean) => void) =>
+  listen<boolean>("tree://scanning", (e) => fn(e.payload));
 
 export const onArchiveDone = (fn: (s: ArchiveSummary) => void) =>
   listen<ArchiveSummary>("archive://done", (e) => fn(e.payload));

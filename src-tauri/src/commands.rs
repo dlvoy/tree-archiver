@@ -16,14 +16,15 @@ use crate::plan::{
 };
 use crate::roots::{rebuild, snapshot_checks, Sources};
 use crate::scan::{scan_path, ScanIssue};
+use crate::explorer;
 use crate::settings::{self, Settings};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 // ---------------------------------------------------------------- state
 
@@ -54,6 +55,13 @@ pub struct AppState {
     pub scan_cancel: Arc<AtomicBool>,
     pub archive_cancel: Arc<AtomicBool>,
     pub archiving: Arc<AtomicBool>,
+    /// Paths handed over by File Explorer, waiting to be coalesced. Explorer
+    /// starts one process per selected item, so a five-file selection arrives
+    /// as five separate hand-offs within a few milliseconds.
+    pub external: Arc<Mutex<Vec<String>>>,
+    /// Bumped on every hand-off. The debounce task only acts if it still holds
+    /// the newest value, so only the last arrival in a burst does the work.
+    pub external_gen: Arc<AtomicU64>,
 }
 
 impl Default for AppState {
@@ -64,9 +72,15 @@ impl Default for AppState {
             scan_cancel: Arc::new(AtomicBool::new(false)),
             archive_cancel: Arc::new(AtomicBool::new(false)),
             archiving: Arc::new(AtomicBool::new(false)),
+            external: Arc::new(Mutex::new(Vec::new())),
+            external_gen: Arc::new(AtomicU64::new(0)),
         }
     }
 }
+
+/// A batch is flushed on this many lines even if the timer has not expired,
+/// so a fast local disk cannot build an unbounded backlog.
+const LOG_BATCH_MAX: usize = 2000;
 
 type Cmd<T> = Result<T, String>;
 
@@ -454,6 +468,128 @@ pub fn save_settings(app: AppHandle, state: State<'_, AppState>, settings: Setti
     settings::save(&app, &settings)
 }
 
+// ---------------------------------------------------------------- explorer
+
+#[tauri::command]
+pub fn explorer_status() -> bool {
+    explorer::is_installed()
+}
+
+/// `label` is the menu text, already translated by the frontend — the registry
+/// stores one fixed string, so it is written in whatever language was active.
+#[tauri::command]
+pub fn explorer_install(label: String) -> Cmd<bool> {
+    explorer::install(&label)?;
+    Ok(explorer::is_installed())
+}
+
+#[tauri::command]
+pub fn explorer_uninstall() -> Cmd<bool> {
+    explorer::uninstall()?;
+    Ok(explorer::is_installed())
+}
+
+// ---------------------------------------------------------------- external staging
+
+/// How long to wait for more paths before scanning. Explorer starts one
+/// process per selected item, so they arrive a few milliseconds apart.
+const EXTERNAL_COALESCE: Duration = Duration::from_millis(400);
+
+/// Takes paths handed over from outside the window — the command line, or a
+/// second instance started by the Explorer menu — and stages them as though
+/// they had been dropped on the window.
+///
+/// Arrivals are coalesced so that selecting five folders produces one scan and
+/// one tree rebuild rather than five of each.
+pub fn stage_external(app: &AppHandle, paths: Vec<String>) {
+    if paths.is_empty() {
+        return;
+    }
+    let state = app.state::<AppState>();
+    {
+        let Ok(mut queue) = state.external.lock() else {
+            return;
+        };
+        queue.extend(paths);
+    }
+    let mine = state.external_gen.fetch_add(1, Ordering::SeqCst) + 1;
+
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio_sleep(EXTERNAL_COALESCE).await;
+
+        let state = app.state::<AppState>();
+        // A later arrival owns the batch; this task has nothing left to do.
+        if state.external_gen.load(Ordering::SeqCst) != mine {
+            return;
+        }
+        let batch = match state.external.lock() {
+            Ok(mut q) => std::mem::take(&mut *q),
+            Err(_) => return,
+        };
+        if batch.is_empty() {
+            return;
+        }
+
+        let _ = app.emit(events::TREE_SCANNING, true);
+        let result = add_paths(app.clone(), app.state::<AppState>(), batch).await;
+        let _ = app.emit(events::TREE_SCANNING, false);
+
+        match result {
+            Ok(update) => {
+                let _ = app.emit(events::TREE_UPDATED, update);
+            }
+            Err(e) => {
+                let _ = app.emit(events::TREE_ERROR, e);
+            }
+        }
+        focus_main_window(&app);
+    });
+}
+
+async fn tokio_sleep(d: Duration) {
+    // Tauri's async runtime is tokio, but the re-export is not public API, so
+    // the sleep goes through a blocking task rather than importing tokio here.
+    let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(d)).await;
+}
+
+/// Explorer starts the app behind whatever window had focus, so a hand-off to
+/// an already-running instance has to raise the window itself.
+pub fn focus_main_window(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+/// Pulls stageable paths out of a command line.
+///
+/// Accepts `--add <path>` as the Explorer verb sends it, and bare paths so the
+/// exe can be used from a shell without ceremony. The first argument is the
+/// executable and is always dropped.
+pub fn paths_from_args<I, S>(args: I) -> Vec<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut out = Vec::new();
+    let mut iter = args.into_iter().skip(1).peekable();
+    while let Some(arg) = iter.next() {
+        let a = arg.as_ref();
+        if a == "--add" {
+            if let Some(next) = iter.next() {
+                out.push(next.as_ref().to_string());
+            }
+        } else if let Some(rest) = a.strip_prefix("--add=") {
+            out.push(rest.to_string());
+        } else if !a.starts_with("--") {
+            out.push(a.to_string());
+        }
+    }
+    out
+}
+
 // ---------------------------------------------------------------- plan I/O
 
 #[tauri::command]
@@ -714,8 +850,21 @@ pub fn start_archive(
     // run is still going.
     let log_for_thread = state.log.clone();
 
+    // Every entry added now produces a log line, so batching is not an
+    // optimisation — one IPC message per file would stall the window.
+    let pending: Mutex<Vec<LogEntry>> = Mutex::new(Vec::new());
+
     std::thread::spawn(move || {
         let mut last_emit = Instant::now();
+        let mut last_log = Instant::now();
+        let flush = |app: &AppHandle, pending: &Mutex<Vec<LogEntry>>| {
+            let batch = match pending.lock() {
+                Ok(mut p) if !p.is_empty() => std::mem::take(&mut *p),
+                _ => return,
+            };
+            let _ = app.emit(events::ARCHIVE_LOG, batch);
+        };
+
         let summary: ArchiveSummary = archive::run(
             &entries,
             &out_path,
@@ -729,13 +878,27 @@ pub fn start_archive(
                 }
             },
             |entry| {
+                // The full log stays in memory for `save_log`; only the live
+                // view is rate-limited.
                 if let Ok(mut l) = log_for_thread.lock() {
                     l.push(entry.clone());
                 }
-                let _ = app_handle.emit(events::ARCHIVE_LOG, entry);
+                let full = match pending.lock() {
+                    Ok(mut p) => {
+                        p.push(entry);
+                        p.len() >= LOG_BATCH_MAX
+                    }
+                    Err(_) => false,
+                };
+                if full || last_log.elapsed() >= Duration::from_millis(120) {
+                    last_log = Instant::now();
+                    flush(&app_handle, &pending);
+                }
             },
         );
 
+        // The closing summary lines land in the same batch as the tail.
+        flush(&app_handle, &pending);
         archiving.store(false, Ordering::Relaxed);
         let _ = app_handle.emit(events::ARCHIVE_DONE, summary);
     });
@@ -789,4 +952,55 @@ pub fn get_state(state: State<'_, AppState>) -> Cmd<TreeUpdate> {
 #[tauri::command]
 pub fn output_extension(compression: Compression) -> String {
     compression.extension().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::paths_from_args;
+
+    /// The shape the registry writes: `"<exe>" --add "%1"`.
+    #[test]
+    fn the_explorer_verb_form_is_understood() {
+        assert_eq!(
+            paths_from_args(["tree-archiver.exe", "--add", r"C:\Users\Nick\.aws"]),
+            vec![r"C:\Users\Nick\.aws".to_string()]
+        );
+    }
+
+    #[test]
+    fn the_equals_form_is_understood_too() {
+        assert_eq!(
+            paths_from_args(["exe", r"--add=C:\DOWN\bd"]),
+            vec![r"C:\DOWN\bd".to_string()]
+        );
+    }
+
+    #[test]
+    fn bare_paths_work_so_a_shell_needs_no_ceremony() {
+        assert_eq!(
+            paths_from_args(["exe", r"C:\one", r"D:\two"]),
+            vec![r"C:\one".to_string(), r"D:\two".to_string()]
+        );
+    }
+
+    /// The executable itself is never a path to stage.
+    #[test]
+    fn the_program_name_is_always_dropped() {
+        assert!(paths_from_args(["tree-archiver.exe"]).is_empty());
+    }
+
+    /// Tauri and WebView2 add their own switches; none of them are paths.
+    #[test]
+    fn unknown_flags_are_ignored() {
+        assert_eq!(
+            paths_from_args(["exe", "--no-sandbox", "--add", r"C:\keep"]),
+            vec![r"C:\keep".to_string()]
+        );
+    }
+
+    /// A dangling `--add` at the end must not panic or invent an entry.
+    #[test]
+    fn a_trailing_add_without_a_path_yields_nothing() {
+        assert!(paths_from_args(["exe", "--add"]).is_empty());
+    }
 }

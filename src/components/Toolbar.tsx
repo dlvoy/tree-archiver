@@ -1,17 +1,9 @@
-import type {
-  ScanProgress,
-  SortBy,
-  SortDir,
-  SortKey,
-  ThemePreference,
-} from "../api/commands";
+import type { ScanProgress, SortBy, SortDir, SortKey } from "../api/commands";
+import type { LanguagePreference, ThemePreference } from "../api/commands";
+import { useT } from "../i18n/context";
+import { LANG_NAMES, type Lang } from "../i18n";
+import { Flag } from "./Flag";
 import * as fmt from "../lib/format";
-
-const THEME_LABEL: Record<ThemePreference, string> = {
-  system: "System (follows Windows)",
-  light: "Light",
-  dark: "Dark",
-};
 
 export function Toolbar({
   sort,
@@ -20,6 +12,8 @@ export function Toolbar({
   scanning,
   scanProgress,
   theme,
+  language,
+  resolvedLanguage,
   onAddFolders,
   onAddFiles,
   onRemove,
@@ -31,6 +25,8 @@ export function Toolbar({
   onLoadPlan,
   onCancelScan,
   onCycleTheme,
+  onCycleLanguage,
+  onOpenSettings,
 }: {
   sort: SortKey;
   hasTree: boolean;
@@ -38,6 +34,9 @@ export function Toolbar({
   scanning: boolean;
   scanProgress: ScanProgress | null;
   theme: ThemePreference;
+  language: LanguagePreference;
+  /** What `system` currently resolves to, for the flag on the button. */
+  resolvedLanguage: Lang;
   onAddFolders: () => void;
   onAddFiles: () => void;
   onRemove: () => void;
@@ -49,11 +48,20 @@ export function Toolbar({
   onLoadPlan: () => void;
   onCancelScan: () => void;
   onCycleTheme: () => void;
+  onCycleLanguage: () => void;
+  onOpenSettings: () => void;
 }) {
+  const t = useT();
+
   const flip = (by: SortBy) => {
     if (sort.by === by) onSort(by, sort.dir === "asc" ? "desc" : "asc");
     else onSort(by, "asc");
   };
+
+  const themeName =
+    theme === "system" ? t("theme.systemLong") : theme === "light" ? t("theme.light") : t("theme.dark");
+  const langName =
+    language === "system" ? t("lang.systemLong") : LANG_NAMES[language];
 
   return (
     <header className="bar bar--top">
@@ -72,28 +80,28 @@ export function Toolbar({
         </div>
 
         <div className="group">
-          <span className="group__label">Sources</span>
+          <span className="group__label">{t("toolbar.sources")}</span>
           <button type="button" className="btn btn--primary" onClick={onAddFolders}>
-            Add folders
+            {t("toolbar.addFolders")}
           </button>
           <button type="button" className="btn" onClick={onAddFiles}>
-            Add files
+            {t("toolbar.addFiles")}
           </button>
           <button type="button" className="btn" onClick={onRemove} disabled={!canRemove}>
-            Remove
+            {t("toolbar.remove")}
           </button>
           <button type="button" className="btn" onClick={onClear} disabled={!hasTree}>
-            Clear
+            {t("toolbar.clear")}
           </button>
         </div>
 
         <div className="group">
-          <span className="group__label">Plan</span>
+          <span className="group__label">{t("toolbar.plan")}</span>
           <button type="button" className="btn" onClick={onSavePlan} disabled={!hasTree}>
-            Save
+            {t("toolbar.planSave")}
           </button>
           <button type="button" className="btn" onClick={onLoadPlan}>
-            Open
+            {t("toolbar.planOpen")}
           </button>
         </div>
 
@@ -102,24 +110,44 @@ export function Toolbar({
         <button
           type="button"
           className="btn btn--icon"
+          onClick={onCycleLanguage}
+          aria-label={t("lang.label", { name: langName })}
+          title={t("lang.label", { name: langName })}
+        >
+          <Flag lang={language === "system" ? resolvedLanguage : language} muted={language === "system"} />
+        </button>
+
+        <button
+          type="button"
+          className="btn btn--icon"
           onClick={onCycleTheme}
-          aria-label={`Theme: ${THEME_LABEL[theme]}. Change it.`}
-          title={`Theme: ${THEME_LABEL[theme]}`}
+          aria-label={t("theme.label", { name: themeName })}
+          title={t("theme.label", { name: themeName })}
         >
           <ThemeMark theme={theme} />
+        </button>
+
+        <button
+          type="button"
+          className="btn btn--icon"
+          onClick={onOpenSettings}
+          aria-label={t("toolbar.settings")}
+          title={t("toolbar.settings")}
+        >
+          <CogMark />
         </button>
       </div>
 
       <div className="bar__row bar__row--sub">
         <div className="group">
-          <span className="group__label">Sort</span>
+          <span className="group__label">{t("toolbar.sort")}</span>
           <div className="seg">
             <button
               type="button"
               className={`seg__btn ${sort.by === "name" ? "seg__btn--on" : ""}`}
               onClick={() => flip("name")}
             >
-              Name
+              {t("toolbar.sortName")}
               {sort.by === "name" && <Caret dir={sort.dir} />}
             </button>
             <button
@@ -127,22 +155,22 @@ export function Toolbar({
               className={`seg__btn ${sort.by === "size" ? "seg__btn--on" : ""}`}
               onClick={() => flip("size")}
             >
-              Size
+              {t("toolbar.sortSize")}
               {sort.by === "size" && <Caret dir={sort.dir} />}
             </button>
           </div>
         </div>
 
         <div className="group">
-          <span className="group__label">Selection</span>
+          <span className="group__label">{t("toolbar.selection")}</span>
           <button type="button" className="btn btn--quiet" onClick={() => onCheckAll(true)} disabled={!hasTree}>
-            Check all
+            {t("toolbar.checkAll")}
           </button>
           <button type="button" className="btn btn--quiet" onClick={() => onCheckAll(false)} disabled={!hasTree}>
-            Uncheck all
+            {t("toolbar.uncheckAll")}
           </button>
           <button type="button" className="btn btn--quiet" onClick={onCollapseAll} disabled={!hasTree}>
-            Collapse all
+            {t("toolbar.collapseAll")}
           </button>
         </div>
 
@@ -153,14 +181,17 @@ export function Toolbar({
             <span className="scanning__pulse" aria-hidden="true" />
             <span className="scanning__text">
               {scanProgress
-                ? `${fmt.count(scanProgress.files)} files · ${fmt.bytes(scanProgress.bytes)}`
-                : "Reading…"}
+                ? t("toolbar.scanned", {
+                    files: fmt.count(scanProgress.files),
+                    bytes: fmt.bytes(scanProgress.bytes),
+                  })
+                : t("toolbar.reading")}
             </span>
             <span className="scanning__path" title={scanProgress?.current ?? ""}>
               {scanProgress ? fmt.shortenPath(scanProgress.current, 48) : ""}
             </span>
             <button type="button" className="btn btn--quiet" onClick={onCancelScan}>
-              Stop
+              {t("toolbar.stop")}
             </button>
           </div>
         )}
@@ -190,6 +221,15 @@ function ThemeMark({ theme }: { theme: ThemePreference }) {
   return (
     <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round">
       <path d="M13.5 9.8A6 6 0 0 1 6.2 2.5a6 6 0 1 0 7.3 7.3z" />
+    </svg>
+  );
+}
+
+function CogMark() {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round">
+      <circle cx="8" cy="8" r="2.3" />
+      <path d="M8 1.2l1 1.7 1.9-.5.4 2 1.9.7-.8 1.8.8 1.8-1.9.7-.4 2-1.9-.5-1 1.7-1-1.7-1.9.5-.4-2-1.9-.7.8-1.8-.8-1.8 1.9-.7.4-2 1.9.5z" />
     </svg>
   );
 }

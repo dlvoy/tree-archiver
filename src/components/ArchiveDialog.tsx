@@ -8,24 +8,14 @@ import type {
   PathMode,
   PathModeOptions,
 } from "../api/commands";
+import { useT } from "../i18n/context";
+import type { Key } from "../i18n";
 import * as fmt from "../lib/format";
 
-const MODES: { mode: PathMode; label: string; blurb: string }[] = [
-  {
-    mode: "foldersOnly",
-    label: "Folders only",
-    blurb: "Each staged folder sits at the top of the archive.",
-  },
-  {
-    mode: "commonRoot",
-    label: "Common root",
-    blurb: "Keeps the folder the staged paths have in common.",
-  },
-  {
-    mode: "fullPath",
-    label: "Full path",
-    blurb: "Keeps the whole path, drive letter included.",
-  },
+const MODES: { mode: PathMode; label: Key; blurb: Key }[] = [
+  { mode: "foldersOnly", label: "build.modeFoldersOnly", blurb: "build.blurbFoldersOnly" },
+  { mode: "commonRoot", label: "build.modeCommonRoot", blurb: "build.blurbCommonRoot" },
+  { mode: "fullPath", label: "build.modeFullPath", blurb: "build.blurbFullPath" },
 ];
 
 /**
@@ -43,6 +33,7 @@ export function ArchiveDialog({
   onClose: () => void;
   onStarted: (outPath: string) => void;
 }) {
+  const t = useT();
   const [est, setEst] = useState<Estimate | null>(null);
   const [modes, setModes] = useState<PathModeOptions | null>(null);
   const [outPath, setOutPath] = useState<string>("");
@@ -100,16 +91,21 @@ export function ArchiveDialog({
   const pick = async () => {
     const ext = options.compression === "gzip" ? "tar.gz" : "tar";
     const chosen = await save({
-      title: "Save archive as",
+      title: t("build.saveAs"),
       defaultPath: suggestion,
-      filters: [{ name: options.compression === "gzip" ? "Gzipped tar" : "Tar archive", extensions: [ext] }],
+      filters: [
+        {
+          name: options.compression === "gzip" ? t("build.filterTarGz") : t("build.filterTar"),
+          extensions: [ext],
+        },
+      ],
     });
     if (chosen) setOutPath(chosen);
   };
 
   const start = async () => {
     if (!outPath) {
-      setError("Choose where to save the archive first.");
+      setError(t("build.pickOutputFirst"));
       return;
     }
     setStarting(true);
@@ -127,9 +123,13 @@ export function ArchiveDialog({
 
   const blocked = (mode: PathMode) =>
     mode === "foldersOnly"
-      ? (modes && !modes.foldersOnly ? (modes.foldersOnlyReason ?? "not usable here") : null)
+      ? (modes && !modes.foldersOnly
+          ? (modes.foldersOnlyReason ?? t("build.notUsable"))
+          : null)
       : mode === "commonRoot"
-        ? (modes && !modes.commonRoot ? (modes.commonRootReason ?? "not usable here") : null)
+        ? (modes && !modes.commonRoot
+            ? (modes.commonRootReason ?? t("build.notUsable"))
+            : null)
         : null;
 
   const sample =
@@ -145,10 +145,10 @@ export function ArchiveDialog({
   const reason = blocked(options.pathMode);
 
   return (
-    <Modal title="Build archive" onClose={onClose}>
+    <Modal title={t("build.title")} onClose={onClose}>
       <div className="field">
         <label className="field__label" htmlFor="outpath">
-          Output file
+          {t("build.output")}
         </label>
         <div className="field__row">
           <input
@@ -160,13 +160,13 @@ export function ArchiveDialog({
             onChange={(e) => setOutPath(e.target.value)}
           />
           <button type="button" className="btn" onClick={pick}>
-            Browse…
+            {t("build.browse")}
           </button>
         </div>
       </div>
 
       <div className="field">
-        <span className="field__label">Paths inside the archive</span>
+        <span className="field__label">{t("build.paths")}</span>
         <div className="seg seg--wide">
           {MODES.map((m) => {
             const why = blocked(m.mode);
@@ -176,20 +176,20 @@ export function ArchiveDialog({
                 type="button"
                 className={`seg__btn ${options.pathMode === m.mode ? "seg__btn--on" : ""}`}
                 disabled={why !== null}
-                title={why ?? m.blurb}
+                title={why ?? t(m.blurb)}
                 onClick={() => set({ pathMode: m.mode })}
               >
-                {m.label}
+                {t(m.label)}
               </button>
             );
           })}
         </div>
         <p className="field__hint">
           {reason ? (
-            <span className="field__hint--warn">Unavailable — {reason}.</span>
+            <span className="field__hint--warn">{t("build.unavailable", { reason })}</span>
           ) : (
             <>
-              {chosen?.blurb}
+              {chosen && t(chosen.blurb)}
               {sample && (
                 <>
                   {" "}
@@ -202,7 +202,7 @@ export function ArchiveDialog({
       </div>
 
       <div className="field">
-        <span className="field__label">Compression</span>
+        <span className="field__label">{t("build.compression")}</span>
         <div className="seg seg--wide">
           {(["none", "gzip"] as Compression[]).map((c) => (
             <button
@@ -211,14 +211,14 @@ export function ArchiveDialog({
               className={`seg__btn ${options.compression === c ? "seg__btn--on" : ""}`}
               onClick={() => set({ compression: c })}
             >
-              {c === "none" ? "None (.tar)" : "gzip (.tar.gz)"}
+              {c === "none" ? t("build.compressionNone") : t("build.compressionGzip")}
             </button>
           ))}
         </div>
         {gz && (
           <div className="field__row field__row--slider">
             <label className="slider__label" htmlFor="gzlevel">
-              Level {options.gzipLevel}
+              {t("build.level", { level: options.gzipLevel })}
             </label>
             <input
               id="gzlevel"
@@ -230,23 +230,23 @@ export function ArchiveDialog({
               onChange={(e) => set({ gzipLevel: Number(e.target.value) })}
             />
             <span className="slider__ends">
-              <span>faster</span>
-              <span>smaller</span>
+              <span>{t("build.faster")}</span>
+              <span>{t("build.smaller")}</span>
             </span>
           </div>
         )}
       </div>
 
       <div className="titleblock">
-        <div className="titleblock__head">Archive spec</div>
+        <div className="titleblock__head">{t("build.spec")}</div>
         <dl className="titleblock__grid">
-          <Field label="Entries" value={est ? fmt.count(est.entries) : "—"} />
-          <Field label="Files" value={est ? fmt.count(est.files) : "—"} />
-          <Field label="Content" value={est ? fmt.bytes(est.payloadBytes) : "—"} />
+          <Field label={t("build.entries")} value={est ? fmt.count(est.entries) : "—"} />
+          <Field label={t("build.files")} value={est ? fmt.count(est.files) : "—"} />
+          <Field label={t("build.content")} value={est ? fmt.bytes(est.payloadBytes) : "—"} />
           <Field
-            label={gz ? "Max size" : "Archive size"}
+            label={gz ? t("build.maxSize") : t("build.archiveSize")}
             value={est ? fmt.bytes(est.tarBytes) : "—"}
-            note={gz ? "before compression" : "exact"}
+            note={gz ? t("build.beforeCompression") : t("build.exact")}
             strong
           />
         </dl>
@@ -256,7 +256,7 @@ export function ArchiveDialog({
 
       <div className="modal__actions">
         <button type="button" className="btn" onClick={onClose}>
-          Cancel
+          {t("build.cancel")}
         </button>
         <button
           type="button"
@@ -264,7 +264,7 @@ export function ArchiveDialog({
           onClick={start}
           disabled={starting || !est || est.entries === 0}
         >
-          {starting ? "Starting…" : "Start"}
+          {starting ? t("build.starting") : t("build.start")}
         </button>
       </div>
     </Modal>
@@ -298,23 +298,29 @@ export function Modal({
   onClose,
   children,
   wide,
+  escapes = true,
 }: {
   title: string;
   onClose?: () => void;
   children: React.ReactNode;
   wide?: boolean;
+  /**
+   * Set false while a modal of your own is open on top: both would otherwise
+   * see the same keydown and Escape would dismiss two dialogs at once.
+   */
+  escapes?: boolean;
 }) {
   useEffect(() => {
-    if (!onClose) return;
+    if (!onClose || !escapes) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, escapes]);
 
   return (
-    <div className="scrim" onClick={onClose}>
+    <div className="scrim" onClick={escapes ? onClose : undefined}>
       <div
         className={`modal ${wide ? "modal--wide" : ""}`}
         role="dialog"

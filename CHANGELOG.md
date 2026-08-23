@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-23
+
+### Added
+
+- The interface speaks Polish and German as well as English, picked from the
+  Windows display language by default. A flag button beside the theme button
+  cycles between them, and the choice is remembered.
+- A settings dialog, opened from the cog in the toolbar, with named dropdowns
+  for theme and language.
+- **Integrate with Explorer**, a setting that adds “Archive with Tree
+  Archiver” to the right-click menu for files and folders. Choosing it stages
+  the selection in the window that is already open rather than starting a
+  second copy of the app, and selecting several items produces one staging
+  rather than one per item. Both switching it on and switching it off ask for
+  confirmation first, and it needs no administrator rights.
+- The build log now lists every file and folder as it goes in, and closes with
+  the totals: what was written, what could not be read, and how long it took.
+  Successful lines read as ordinary text so that failures, in red, are the only
+  thing that stands out.
+
+### Changed
+
+- The application identifier is now `pl.dzienia.treearchiver`. Preferences
+  saved by an earlier version are carried over automatically the first time
+  1.2.0 runs. Because Windows identifies an installed program by that value,
+  1.2.0 installs alongside 1.0.0 or 1.1.0 rather than replacing it — uninstall
+  the older version by hand if you do not want both.
+- The log window keeps the most recent few thousand lines rather than all of
+  them, so a very large archive cannot exhaust memory; the complete log is
+  still what **Save log** writes. The header says when the view has been
+  trimmed.
+
 ## [1.1.0] - 2026-08-23
 
 ### Added
@@ -96,6 +128,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Archive entries are named relative to the root's parent, so extracting produces
   one top-level folder instead of scattering files into the current directory.
 
-[Unreleased]: https://github.com/dlvoy/tree-archiver/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/dlvoy/tree-archiver/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/dlvoy/tree-archiver/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/dlvoy/tree-archiver/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/dlvoy/tree-archiver/releases/tag/v1.0.0

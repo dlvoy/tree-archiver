@@ -10,6 +10,7 @@ use crate::model::sort::{sort_children, SortKey};
 use crate::naming::NamingContext;
 use crate::plan::{Compression, OutputOptions, PathMode};
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
@@ -161,7 +162,36 @@ pub struct LogEntry {
     pub ts: String,
     pub level: LogLevel,
     pub path: String,
+    /// Translation key, so the UI can render the line in the user's language.
+    pub key: &'static str,
+    /// Values to interpolate into the translated string.
+    pub args: BTreeMap<String, String>,
+    /// The same line in English. This is what `save_log` writes, and what the
+    /// UI falls back to for a key it does not recognise.
     pub message: String,
+}
+
+/// A log line before it is stamped and levelled: a key for translation, the
+/// arguments that key needs, and the English rendering.
+pub struct LogMsg {
+    key: &'static str,
+    args: BTreeMap<String, String>,
+    text: String,
+}
+
+impl LogMsg {
+    pub fn new(key: &'static str, text: impl Into<String>) -> Self {
+        LogMsg {
+            key,
+            args: BTreeMap::new(),
+            text: text.into(),
+        }
+    }
+
+    pub fn arg(mut self, name: &str, value: impl Into<String>) -> Self {
+        self.args.insert(name.to_string(), value.into());
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -324,12 +354,14 @@ where
         rate: Rate::new(),
     };
 
-    let mut log = |level: LogLevel, path: &str, message: String, on_log: &mut L| {
+    let mut log = |level: LogLevel, path: &str, msg: LogMsg, on_log: &mut L| {
         on_log(LogEntry {
             ts: fsutil::iso8601_utc(SystemTime::now()),
             level,
             path: path.to_string(),
-            message,
+            key: msg.key,
+            args: msg.args,
+            message: msg.text,
         });
     };
 
@@ -339,7 +371,8 @@ where
             log(
                 LogLevel::Error,
                 &fsutil::display_path(out_path),
-                format!("cannot create the archive: {e}"),
+                LogMsg::new("log.createFailed", format!("cannot create the archive: {e}"))
+                    .arg("error", e.to_string()),
                 &mut on_log,
             );
             return ArchiveSummary {
@@ -393,7 +426,8 @@ where
             log(
                 LogLevel::Error,
                 &fsutil::display_path(out_path),
-                format!("writing the archive failed: {e}"),
+                LogMsg::new("log.writeFailed", format!("writing the archive failed: {e}"))
+                    .arg("error", e.to_string()),
                 &mut on_log,
             );
         }
@@ -406,13 +440,20 @@ where
             Ok(()) => log(
                 LogLevel::Info,
                 &fsutil::display_path(out_path),
-                "cancelled; the partial archive was deleted".into(),
+                LogMsg::new(
+                    "log.cancelledDeleted",
+                    "cancelled; the partial archive was deleted",
+                ),
                 &mut on_log,
             ),
             Err(e) => log(
                 LogLevel::Warn,
                 &fsutil::display_path(out_path),
-                format!("cancelled, but the partial archive could not be deleted: {e}"),
+                LogMsg::new(
+                    "log.cancelledKept",
+                    format!("cancelled, but the partial archive could not be deleted: {e}"),
+                )
+                .arg("error", e.to_string()),
                 &mut on_log,
             ),
         }
@@ -424,7 +465,7 @@ where
         std::fs::metadata(out_path).map(|m| m.len()).unwrap_or(0)
     };
 
-    ArchiveSummary {
+    let summary = ArchiveSummary {
         ok,
         cancelled,
         out_path: fsutil::display_path(out_path),
@@ -434,7 +475,69 @@ where
         skipped: state.skipped,
         errors: state.errors,
         elapsed_secs: state.rate.elapsed(),
+    };
+
+    // The log closes with the same figures the summary panel shows, so a saved
+    // log stands on its own without the window that produced it.
+    for msg in summary_lines(&summary) {
+        let level = if summary.ok {
+            LogLevel::Info
+        } else {
+            LogLevel::Warn
+        };
+        log(level, &summary.out_path, msg, &mut on_log);
     }
+
+    summary
+}
+
+/// The closing lines of the log: what was written, what failed, how long it
+/// took. Separate from `run` so the wording can be tested directly.
+fn summary_lines(s: &ArchiveSummary) -> Vec<LogMsg> {
+    let mut out = Vec::new();
+
+    if s.cancelled {
+        out.push(LogMsg::new("log.summaryCancelled", "cancelled by the user"));
+    } else if s.ok {
+        out.push(
+            LogMsg::new(
+                "log.summaryWritten",
+                format!(
+                    "wrote {} files and {} folders, {} bytes on disk",
+                    s.files_written, s.dirs_written, s.bytes_written
+                ),
+            )
+            .arg("files", s.files_written.to_string())
+            .arg("dirs", s.dirs_written.to_string())
+            .arg("bytes", s.bytes_written.to_string()),
+        );
+    } else {
+        out.push(LogMsg::new(
+            "log.summaryFailed",
+            "the archive could not be completed",
+        ));
+    }
+
+    if s.errors > 0 {
+        out.push(
+            LogMsg::new(
+                "log.summaryErrors",
+                format!("{} could not be read, {} skipped", s.errors, s.skipped),
+            )
+            .arg("errors", s.errors.to_string())
+            .arg("skipped", s.skipped.to_string()),
+        );
+    }
+
+    out.push(
+        LogMsg::new(
+            "log.summaryElapsed",
+            format!("finished in {:.1}s", s.elapsed_secs),
+        )
+        .arg("seconds", format!("{:.1}", s.elapsed_secs)),
+    );
+
+    out
 }
 
 struct RunState {
@@ -461,7 +564,7 @@ where
     W: Write,
     P: FnMut(Progress),
     L: FnMut(LogEntry),
-    LG: FnMut(LogLevel, &str, String, &mut L),
+    LG: FnMut(LogLevel, &str, LogMsg, &mut L),
 {
     for entry in entries {
         if cancel.load(Ordering::Relaxed) {
@@ -474,13 +577,25 @@ where
 
         if entry.is_dir {
             match append_dir(&mut builder, entry, &disk_path) {
-                Ok(()) => state.dirs_done += 1,
+                Ok(()) => {
+                    state.dirs_done += 1;
+                    log(
+                        LogLevel::Info,
+                        &entry.name,
+                        LogMsg::new("log.addedDir", "added folder"),
+                        on_log,
+                    );
+                }
                 Err(e) => {
                     state.errors += 1;
                     log(
                         LogLevel::Error,
                         &entry.name,
-                        format!("could not add the directory: {e}"),
+                        LogMsg::new(
+                            "log.dirFailed",
+                            format!("could not add the directory: {e}"),
+                        )
+                        .arg("error", e.to_string()),
                         on_log,
                     );
                 }
@@ -495,7 +610,12 @@ where
             Err(e) => {
                 state.errors += 1;
                 state.skipped += 1;
-                log(LogLevel::Error, &entry.name, format!("skipped: {e}"), on_log);
+                log(
+                    LogLevel::Error,
+                    &entry.name,
+                    LogMsg::new("log.skipped", format!("skipped: {e}")).arg("error", e.to_string()),
+                    on_log,
+                );
                 continue;
             }
         };
@@ -536,16 +656,28 @@ where
         match append {
             Ok(()) => {
                 state.files_done += 1;
-                if let Some(msg) = read_error {
+                match read_error {
                     // The entry is present and structurally valid, but its
                     // tail is zero padding rather than real data.
-                    state.errors += 1;
-                    log(
-                        LogLevel::Warn,
+                    Some(msg) => {
+                        state.errors += 1;
+                        log(
+                            LogLevel::Warn,
+                            &entry.name,
+                            LogMsg::new(
+                                "log.padded",
+                                format!("added with padding after a read failure: {msg}"),
+                            )
+                            .arg("error", msg),
+                            on_log,
+                        );
+                    }
+                    None => log(
+                        LogLevel::Info,
                         &entry.name,
-                        format!("added with padding after a read failure: {msg}"),
+                        LogMsg::new("log.addedFile", "added").arg("bytes", size.to_string()),
                         on_log,
-                    );
+                    ),
                 }
             }
             Err(e) if is_cancellation(&e) => return Err(e),
@@ -609,6 +741,72 @@ fn eta(total: u64, done: u64, bps: u64) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn summary_of(ok: bool, cancelled: bool, errors: u64) -> ArchiveSummary {
+        ArchiveSummary {
+            ok,
+            cancelled,
+            out_path: "out.tar".into(),
+            bytes_written: 4096,
+            files_written: 7,
+            dirs_written: 2,
+            skipped: errors,
+            errors,
+            elapsed_secs: 1.25,
+        }
+    }
+
+    /// A saved log has to stand on its own, so the closing lines repeat the
+    /// figures the summary panel shows.
+    #[test]
+    fn a_clean_run_closes_with_counts_and_a_duration() {
+        let lines = summary_lines(&summary_of(true, false, 0));
+        let keys: Vec<&str> = lines.iter().map(|l| l.key).collect();
+        assert_eq!(keys, vec!["log.summaryWritten", "log.summaryElapsed"]);
+        assert_eq!(lines[0].args.get("files").map(String::as_str), Some("7"));
+        assert_eq!(lines[0].args.get("dirs").map(String::as_str), Some("2"));
+        // `{:.1}` rounds half to even, so 1.25 formats as 1.2.
+        assert_eq!(lines[1].args.get("seconds").map(String::as_str), Some("1.2"));
+    }
+
+    /// Failures are counted in their own line rather than buried in the first.
+    #[test]
+    fn unreadable_files_get_their_own_closing_line() {
+        let lines = summary_lines(&summary_of(true, false, 3));
+        let keys: Vec<&str> = lines.iter().map(|l| l.key).collect();
+        assert_eq!(
+            keys,
+            vec![
+                "log.summaryWritten",
+                "log.summaryErrors",
+                "log.summaryElapsed"
+            ]
+        );
+        assert_eq!(lines[1].args.get("errors").map(String::as_str), Some("3"));
+    }
+
+    #[test]
+    fn a_cancelled_run_says_so_instead_of_reporting_totals() {
+        let lines = summary_lines(&summary_of(false, true, 0));
+        assert_eq!(lines[0].key, "log.summaryCancelled");
+    }
+
+    #[test]
+    fn a_failed_run_says_so_instead_of_reporting_totals() {
+        let lines = summary_lines(&summary_of(false, false, 1));
+        assert_eq!(lines[0].key, "log.summaryFailed");
+    }
+
+    /// Every key the frontend has to translate, in one place, so adding a log
+    /// line without a translation shows up here first.
+    #[test]
+    fn the_translatable_keys_are_the_documented_ones() {
+        let all = summary_lines(&summary_of(true, false, 1));
+        for l in &all {
+            assert!(l.key.starts_with("log."), "{} is not namespaced", l.key);
+            assert!(!l.text.is_empty(), "{} has no English fallback", l.key);
+        }
+    }
     use crate::model::arena::FILES_GROUP_NAME;
     use crate::model::check;
     use crate::naming::NamingContext;

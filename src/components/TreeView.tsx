@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTree } from "../store/tree";
+import { useT } from "../i18n/context";
 import { ROW_HEIGHT, TreeRow } from "./TreeRow";
 import type { NodeId } from "../api/commands";
 
@@ -17,6 +18,7 @@ export function TreeView({
   onCheckAll: (checked: boolean) => void;
 }) {
   const store = useTree();
+  const t = useT();
   const rows = useMemo(
     () => store.rows(),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -116,14 +118,10 @@ export function TreeView({
             />
             <path d="M32 20v12M26 26h12" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
           </svg>
-          <h2 className="empty__title">Nothing staged yet</h2>
-          <p className="empty__body">
-            Drop folders anywhere in this window, or add them from the toolbar.
-            Everything you add starts fully selected — uncheck what you want to
-            leave out.
-          </p>
+          <h2 className="empty__title">{t("tree.emptyTitle")}</h2>
+          <p className="empty__body">{t("tree.emptyBody")}</p>
           <button type="button" className="btn btn--primary" onClick={onAddFolders}>
-            Add folders
+            {t("toolbar.addFolders")}
           </button>
         </div>
       </div>

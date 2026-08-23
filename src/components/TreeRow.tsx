@@ -2,6 +2,7 @@ import { memo } from "react";
 import type { Row } from "../store/tree";
 import { FileIcon } from "./FileIcon";
 import { TriCheckbox } from "./TriCheckbox";
+import { useT } from "../i18n/context";
 import * as fmt from "../lib/format";
 
 export const ROW_HEIGHT = 26;
@@ -32,6 +33,7 @@ export const TreeRow = memo(function TreeRow({
   onToggleCheck: () => void;
   onSelect: () => void;
 }) {
+  const t = useT();
   const { node, depth, guides } = row;
   const container = node.kind !== "file";
   const partial = node.check === "partial";
@@ -63,7 +65,7 @@ export const TreeRow = memo(function TreeRow({
         className={`twisty ${expanded ? "twisty--open" : ""}`}
         tabIndex={-1}
         aria-hidden={!container}
-        aria-label={expanded ? "Collapse" : "Expand"}
+        aria-label={expanded ? t("tree.collapse") : t("tree.expand")}
         disabled={!container || !node.hasChildren}
         onClick={(e) => {
           e.stopPropagation();
@@ -94,8 +96,8 @@ export const TreeRow = memo(function TreeRow({
         {node.name}
       </span>
 
-      {node.spine && <span className="row__tag">pass-through</span>}
-      {loading && <span className="row__tag row__tag--live">reading…</span>}
+      {node.spine && <span className="row__tag">{t("tree.passThrough")}</span>}
+      {loading && <span className="row__tag row__tag--live">{t("tree.reading")}</span>}
 
       <span className="row__size">
         <span className="row__figures">

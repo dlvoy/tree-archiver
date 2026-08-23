@@ -1,6 +1,7 @@
 pub mod archive;
 pub mod commands;
 pub mod events;
+pub mod explorer;
 pub mod fsutil;
 pub mod model;
 pub mod naming;
@@ -15,6 +16,13 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Must be registered first: the Explorer verb starts one process per
+        // selected item, and every one of them after the first has to hand its
+        // path to the window that is already open rather than opening another.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            commands::focus_main_window(app);
+            commands::stage_external(app, commands::paths_from_args(argv));
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(AppState::default())
@@ -26,6 +34,14 @@ pub fn run() {
             if let Ok(mut tree) = state.tree.lock() {
                 tree.sort = saved.sort;
                 tree.output = saved.output;
+            }
+
+            // This instance may itself have been started from the Explorer
+            // menu, in which case the paths are on its own command line.
+            let args: Vec<String> = std::env::args().collect();
+            let paths = commands::paths_from_args(args);
+            if !paths.is_empty() {
+                commands::stage_external(app.handle(), paths);
             }
             Ok(())
         })
@@ -54,6 +70,9 @@ pub fn run() {
             commands::path_mode_options,
             commands::get_settings,
             commands::save_settings,
+            commands::explorer_status,
+            commands::explorer_install,
+            commands::explorer_uninstall,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Tree Archiver");

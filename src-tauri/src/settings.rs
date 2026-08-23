@@ -13,6 +13,10 @@ use tauri::{AppHandle, Manager};
 
 pub const SETTINGS_VERSION: u32 = 1;
 
+/// The config directory used before the bundle identifier became
+/// `pl.dzienia.treearchiver`. Read once, to carry old preferences over.
+const LEGACY_IDENTIFIER: &str = "dev.treearchiver.app";
+
 /// Which theme the user picked, as opposed to which one is showing. `System`
 /// resolves against the OS setting in the frontend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -24,6 +28,18 @@ pub enum ThemePreference {
     Dark,
 }
 
+/// Which language the user picked. `System` resolves against the OS display
+/// language in the frontend, the same way `ThemePreference::System` does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum LanguagePreference {
+    #[default]
+    System,
+    En,
+    Pl,
+    De,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -31,6 +47,8 @@ pub struct Settings {
     pub version: u32,
     #[serde(default)]
     pub theme: ThemePreference,
+    #[serde(default)]
+    pub language: LanguagePreference,
     #[serde(default)]
     pub sort: SortKey,
     #[serde(default)]
@@ -46,6 +64,7 @@ impl Default for Settings {
         Settings {
             version: SETTINGS_VERSION,
             theme: ThemePreference::default(),
+            language: LanguagePreference::default(),
             sort: SortKey::default(),
             output: OutputOptions::default(),
         }
@@ -60,13 +79,33 @@ fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("settings.json"))
 }
 
+/// Where preferences lived before the identifier changed. A sibling of the
+/// current directory, since both hang off the same roaming app-data folder.
+fn legacy_settings_path(app: &AppHandle) -> Option<PathBuf> {
+    let current = settings_path(app).ok()?;
+    let parent = current.parent()?.parent()?;
+    Some(parent.join(LEGACY_IDENTIFIER).join("settings.json"))
+}
+
 /// Never fails. Anything unreadable is reported through the returned defaults.
+///
+/// Falls back to the pre-rename config directory once, so changing the bundle
+/// identifier does not silently reset preferences the user already chose.
 pub fn load(app: &AppHandle) -> Settings {
     let Ok(path) = settings_path(app) else {
         return Settings::default();
     };
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return Settings::default();
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(_) => {
+            let Some(old) = legacy_settings_path(app) else {
+                return Settings::default();
+            };
+            let Ok(t) = std::fs::read_to_string(&old) else {
+                return Settings::default();
+            };
+            t
+        }
     };
     // Every field carries a serde default, so a file written by an older
     // version still loads and only the missing keys fall back.
@@ -93,6 +132,7 @@ mod tests {
     fn defaults_are_the_documented_ones() {
         let s = Settings::default();
         assert_eq!(s.theme, ThemePreference::System);
+        assert_eq!(s.language, LanguagePreference::System);
         assert_eq!(s.sort.by, SortBy::Name);
         assert_eq!(s.sort.dir, SortDir::Asc);
         assert_eq!(s.output.path_mode, PathMode::FoldersOnly);
@@ -146,5 +186,31 @@ mod tests {
     #[test]
     fn malformed_json_is_rejected_so_load_can_fall_back() {
         assert!(serde_json::from_str::<Settings>("{ not json").is_err());
+    }
+
+    /// A file written before the identifier changed carries no `language`, and
+    /// must still load rather than being discarded wholesale.
+    #[test]
+    fn a_settings_file_from_before_the_rename_still_loads() {
+        let s: Settings = serde_json::from_str(
+            r#"{"version":1,"theme":"dark","sort":{"by":"size","dir":"desc"},
+                "output":{"compression":"none","gzipLevel":6}}"#,
+        )
+        .unwrap();
+        assert_eq!(s.theme, ThemePreference::Dark);
+        assert_eq!(s.sort.by, SortBy::Size);
+        assert_eq!(s.language, LanguagePreference::System);
+    }
+
+    #[test]
+    fn a_language_choice_round_trips() {
+        let s = Settings {
+            language: LanguagePreference::Pl,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains(r#""language":"pl""#), "{json}");
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.language, LanguagePreference::Pl);
     }
 }

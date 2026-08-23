@@ -1,0 +1,201 @@
+/**
+ * Polish.
+ *
+ * Typed against `en`, so a key added there and missed here fails the build.
+ * Polish takes three plural forms — 1 ścieżka, 2–4 ścieżki, 5+ ścieżek — which
+ * `Intl.PluralRules` picks between as one/few/many.
+ */
+import type { en } from "./en";
+import type { Phrase } from "./index";
+
+export const pl: Record<keyof typeof en, Phrase> = {
+  // ---------------------------------------------------------------- toolbar
+  "toolbar.sources": "Źródła",
+  "toolbar.addFolders": "Dodaj foldery",
+  "toolbar.addFiles": "Dodaj pliki",
+  "toolbar.remove": "Usuń",
+  "toolbar.clear": "Wyczyść",
+  "toolbar.plan": "Plan",
+  "toolbar.planSave": "Zapisz",
+  "toolbar.planOpen": "Otwórz",
+  "toolbar.sort": "Sortowanie",
+  "toolbar.sortName": "Nazwa",
+  "toolbar.sortSize": "Rozmiar",
+  "toolbar.selection": "Zaznaczenie",
+  "toolbar.checkAll": "Zaznacz wszystko",
+  "toolbar.uncheckAll": "Odznacz wszystko",
+  "toolbar.collapseAll": "Zwiń wszystko",
+  "toolbar.reading": "Odczyt…",
+  "toolbar.stop": "Zatrzymaj",
+  "toolbar.scanned": "{files} plików · {bytes}",
+  "toolbar.settings": "Ustawienia",
+
+  // ---------------------------------------------------------------- theme and language
+  "theme.label": "Motyw: {name}",
+  "theme.system": "Systemowy",
+  "theme.systemLong": "Systemowy (zgodnie z Windows)",
+  "theme.light": "Jasny",
+  "theme.dark": "Ciemny",
+  "lang.label": "Język: {name}",
+  "lang.system": "Systemowy",
+  "lang.systemLong": "Systemowy (zgodnie z Windows)",
+
+  // ---------------------------------------------------------------- tree
+  "tree.emptyTitle": "Nic jeszcze nie dodano",
+  "tree.emptyBody":
+    "Upuść foldery w dowolnym miejscu tego okna albo dodaj je z paska narzędzi. Wszystko, co dodasz, jest na początku w pełni zaznaczone — odznacz to, co chcesz pominąć.",
+  "tree.expand": "Rozwiń",
+  "tree.collapse": "Zwiń",
+  "tree.passThrough": "przelotowy",
+  "tree.reading": "odczyt…",
+  "tree.dropHere": "Puść, aby dodać te ścieżki",
+
+  // ---------------------------------------------------------------- status bar
+  "status.sources": "Źródła",
+  "status.files": "Pliki",
+  "status.selected": "Zaznaczono",
+  "status.ofFiles": "{sel} z {total}",
+  "status.ofBytes": "z {total}",
+  "status.idle": "Nie dodano żadnych źródeł",
+  "status.archive": "Archiwizuj…",
+  "status.archiveReady": "Wybierz plik wynikowy i zbuduj archiwum",
+  "status.archiveEmpty": "Najpierw coś zaznacz",
+  "status.unreadable": {
+    one: "Nie udało się odczytać {count} ścieżki",
+    few: "Nie udało się odczytać {count} ścieżek",
+    many: "Nie udało się odczytać {count} ścieżek",
+    other: "Nie udało się odczytać {count} ścieżek",
+  },
+
+  // ---------------------------------------------------------------- build dialog
+  "build.title": "Budowanie archiwum",
+  "build.output": "Plik wynikowy",
+  "build.browse": "Przeglądaj…",
+  "build.paths": "Ścieżki wewnątrz archiwum",
+  "build.modeFoldersOnly": "Same foldery",
+  "build.modeCommonRoot": "Wspólny katalog",
+  "build.modeFullPath": "Pełna ścieżka",
+  "build.blurbFoldersOnly": "Każdy dodany folder trafia na szczyt archiwum.",
+  "build.blurbCommonRoot": "Zachowuje folder wspólny dla dodanych ścieżek.",
+  "build.blurbFullPath": "Zachowuje całą ścieżkę wraz z literą dysku.",
+  "build.unavailable": "Niedostępne — {reason}.",
+  "build.notUsable": "nie da się tu użyć",
+  "build.compression": "Kompresja",
+  "build.compressionNone": "Brak (.tar)",
+  "build.compressionGzip": "gzip (.tar.gz)",
+  "build.level": "Poziom {level}",
+  "build.faster": "szybciej",
+  "build.smaller": "mniejszy",
+  "build.spec": "Specyfikacja archiwum",
+  "build.entries": "Wpisy",
+  "build.files": "Pliki",
+  "build.content": "Zawartość",
+  "build.maxSize": "Rozmiar maks.",
+  "build.archiveSize": "Rozmiar archiwum",
+  "build.beforeCompression": "przed kompresją",
+  "build.exact": "dokładnie",
+  "build.cancel": "Anuluj",
+  "build.start": "Rozpocznij",
+  "build.starting": "Rozpoczynanie…",
+  "build.pickOutputFirst": "Najpierw wybierz, gdzie zapisać archiwum.",
+  "build.saveAs": "Zapisz archiwum jako",
+  "build.filterTar": "Archiwum tar",
+  "build.filterTarGz": "Archiwum tar z gzip",
+
+  // ---------------------------------------------------------------- progress
+  "progress.building": "Budowanie archiwum",
+  "progress.built": "Archiwum zbudowane",
+  "progress.builtWarnings": "Archiwum zbudowane z ostrzeżeniami",
+  "progress.failed": "Budowanie nie powiodło się",
+  "progress.cancelled": "Archiwizacja anulowana",
+  "progress.files": "Pliki",
+  "progress.written": "Zapisano",
+  "progress.ofBytes": "z {total}",
+  "progress.rate": "Prędkość",
+  "progress.elapsed": "Czas",
+  "progress.remaining": "Pozostało",
+  "progress.cancelledNote": "Anulowano. Niepełne archiwum zostało usunięte.",
+  "progress.okNote": "Zapisano {files} plików i {dirs} folderów — {bytes} na dysku.",
+  "progress.errorNote": {
+    one: "Nie udało się odczytać {count} elementu; poza tym archiwum jest kompletne.",
+    few: "Nie udało się odczytać {count} elementów; poza tym archiwum jest kompletne.",
+    many: "Nie udało się odczytać {count} elementów; poza tym archiwum jest kompletne.",
+    other: "Nie udało się odczytać {count} elementów; poza tym archiwum jest kompletne.",
+  },
+  "progress.failedNote":
+    "Nie udało się ukończyć archiwum. Powód znajdziesz w dzienniku poniżej.",
+  "progress.log": "Dziennik",
+  "progress.logFailed": "{count} nieudanych",
+  "progress.logEmpty": "Nic jeszcze nie zapisano.",
+  "progress.logTrimmed": "widocznych ostatnich {shown} z {total}",
+  "progress.saveLog": "Zapisz dziennik",
+  "progress.saveLogTitle": "Zapisz dziennik",
+  "progress.savedLog": {
+    one: "Zapisano {count} wiersz dziennika.",
+    few: "Zapisano {count} wiersze dziennika.",
+    many: "Zapisano {count} wierszy dziennika.",
+    other: "Zapisano {count} wierszy dziennika.",
+  },
+  "progress.stopping": "Zatrzymywanie…",
+  "progress.cancel": "Anuluj",
+  "progress.reveal": "Pokaż w folderze",
+  "progress.done": "Gotowe",
+  "progress.filterText": "Tekst",
+
+  // ---------------------------------------------------------------- archive log
+  "log.addedFile": "dodano",
+  "log.addedDir": "dodano folder",
+  "log.dirFailed": "nie udało się dodać folderu: {error}",
+  "log.skipped": "pominięto: {error}",
+  "log.padded": "dodano z wypełnieniem po błędzie odczytu: {error}",
+  "log.createFailed": "nie można utworzyć archiwum: {error}",
+  "log.writeFailed": "zapis archiwum nie powiódł się: {error}",
+  "log.cancelledDeleted": "anulowano; niepełne archiwum zostało usunięte",
+  "log.cancelledKept": "anulowano, ale nie udało się usunąć niepełnego archiwum: {error}",
+  "log.summaryWritten": "zapisano {files} plików i {dirs} folderów, {bytes} bajtów na dysku",
+  "log.summaryErrors": "nie udało się odczytać {errors}, pominięto {skipped}",
+  "log.summaryElapsed": "ukończono w {seconds} s",
+  "log.summaryCancelled": "anulowane przez użytkownika",
+  "log.summaryFailed": "nie udało się ukończyć archiwum",
+
+  // ---------------------------------------------------------------- settings dialog
+  "settings.title": "Ustawienia",
+  "settings.appearance": "Wygląd",
+  "settings.theme": "Motyw",
+  "settings.language": "Język",
+  "settings.integration": "Integracja",
+  "settings.explorer": "Integracja z Eksploratorem",
+  "settings.explorerBody":
+    "Dodaje „{verb}” do menu podręcznego plików i folderów. Wybranie tej opcji dodaje zaznaczone elementy w już otwartym oknie.",
+  "settings.explorerNote":
+    "W systemie Windows 11 pozycja pojawia się w „Pokaż więcej opcji”.",
+  "settings.explorerOn": "Zarejestrowana",
+  "settings.explorerOff": "Niezarejestrowana",
+  "settings.explorerVerb": "Archiwizuj w Tree Archiver",
+  "settings.close": "Zamknij",
+  "settings.confirmInstallTitle": "Dodać pozycję do menu Eksploratora?",
+  "settings.confirmInstallBody":
+    "Zapisze to dwa klucze w HKEY_CURRENT_USER, aby „{verb}” pojawiało się po kliknięciu pliku lub folderu prawym przyciskiem. Dotyczy tylko Twojego konta i nie wymaga uprawnień administratora.",
+  "settings.confirmInstallGo": "Dodaj pozycję",
+  "settings.confirmRemoveTitle": "Usunąć pozycję z menu Eksploratora?",
+  "settings.confirmRemoveBody":
+    "Usunie to dwa klucze rejestru odpowiadające za „{verb}” w menu podręcznym. Nic więcej nie zostanie zmienione, a pozycję można dodać ponownie w dowolnej chwili.",
+  "settings.confirmRemoveGo": "Usuń pozycję",
+  "settings.confirmCancel": "Anuluj",
+
+  // ---------------------------------------------------------------- dialogs and toasts
+  "app.issuesTitle": "Ścieżki, których nie udało się odczytać",
+  "app.issuesLede":
+    "Zostały pominięte podczas skanowania. Cała reszta została dodana normalnie.",
+  "app.unresolvedTitle": "Część reguł planu już nie obowiązuje",
+  "app.unresolvedLede":
+    "Drzewo zmieniło się od czasu zapisania planu. Te reguły pominięto; wszystko, czego dotyczyły, jest domyślnie uwzględnione.",
+  "app.planSaved": "Plan zapisany w {path}",
+  "app.planSaveTitle": "Zapisz plan archiwum",
+  "app.planOpenTitle": "Otwórz plan archiwum",
+  "app.planFilter": "Plan archiwum",
+  "app.addFoldersTitle": "Dodaj foldery",
+  "app.addFilesTitle": "Dodaj pliki",
+  "app.dismiss": "Zamknij",
+  "app.close": "Zamknij",
+};

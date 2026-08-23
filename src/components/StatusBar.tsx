@@ -1,4 +1,5 @@
 import type { ScanIssue, Summary } from "../api/commands";
+import { useT } from "../i18n/context";
 import * as fmt from "../lib/format";
 
 /**
@@ -16,6 +17,7 @@ export function StatusBar({
   onShowIssues: () => void;
   onArchive: () => void;
 }) {
+  const t = useT();
   const s = summary;
   const fraction = s && s.totalBytes > 0 ? s.selBytes / s.totalBytes : 0;
   const ready = !!s && s.selFiles > 0;
@@ -29,25 +31,32 @@ export function StatusBar({
       <div className="bar__row">
         {s ? (
           <div className="stats">
-            <Stat label="Sources" value={fmt.count(s.sources)} />
+            <Stat label={t("status.sources")} value={fmt.count(s.sources)} />
             <Stat
-              label="Files"
-              value={`${fmt.count(s.selFiles)} of ${fmt.count(s.totalFiles)}`}
+              label={t("status.files")}
+              value={t("status.ofFiles", {
+                sel: fmt.count(s.selFiles),
+                total: fmt.count(s.totalFiles),
+              })}
             />
             <Stat
-              label="Selected"
+              label={t("status.selected")}
               value={fmt.bytes(s.selBytes)}
-              sub={s.selBytes !== s.totalBytes ? `of ${fmt.bytes(s.totalBytes)}` : undefined}
+              sub={
+                s.selBytes !== s.totalBytes
+                  ? t("status.ofBytes", { total: fmt.bytes(s.totalBytes) })
+                  : undefined
+              }
               strong
             />
           </div>
         ) : (
-          <div className="stats stats--idle">No sources staged</div>
+          <div className="stats stats--idle">{t("status.idle")}</div>
         )}
 
         {issues.length > 0 && (
           <button type="button" className="chip chip--warn" onClick={onShowIssues}>
-            {fmt.count(issues.length)} {issues.length === 1 ? "path" : "paths"} could not be read
+            {t("status.unreadable", { count: issues.length })}
           </button>
         )}
 
@@ -58,9 +67,9 @@ export function StatusBar({
           className="btn btn--go"
           onClick={onArchive}
           disabled={!ready}
-          title={ready ? "Choose an output file and build the archive" : "Select something first"}
+          title={ready ? t("status.archiveReady") : t("status.archiveEmpty")}
         >
-          Archive…
+          {t("status.archive")}
         </button>
       </div>
     </footer>

@@ -1,3 +1,16 @@
+/**
+ * Number and size formatting.
+ *
+ * The locale is module-level rather than a parameter: these are called from
+ * dozens of render paths, none of which have any other reason to know about
+ * language, and it changes at most once per session.
+ */
+let locale = "en";
+
+export function setLocale(next: string): void {
+  locale = next;
+}
+
 /** Binary units, matching what Windows file managers report. */
 export function bytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -14,7 +27,7 @@ export function bytes(n: number): string {
 }
 
 export function count(n: number): string {
-  return n.toLocaleString();
+  return n.toLocaleString(locale);
 }
 
 /** Compact duration for ETA and elapsed readouts. */
@@ -36,7 +49,7 @@ export function rate(bps: number): string {
 export function clockTime(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
-  return d.toLocaleTimeString(undefined, { hour12: false });
+  return d.toLocaleTimeString(locale, { hour12: false });
 }
 
 /**
