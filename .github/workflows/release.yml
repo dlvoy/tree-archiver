@@ -1,0 +1,184 @@
+name: Release
+
+# Production builds run only for version tags. Pushing to a branch never
+# publishes anything; use the manual trigger to exercise the build itself.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  # Never cancel a release build half-way through — a partly uploaded release
+  # is worse than a slow one.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    name: Build Windows release
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Work out the version
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            # Manual run: nothing is published, so take the version from the
+            # manifest just to name the artifacts.
+            version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+          # A tag like v1.1.0-rc.1 publishes as a pre-release.
+          if [ "${GITHUB_REF_NAME}" != "${GITHUB_REF_NAME%-*}" ]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Building version ${version}"
+
+      # The installer takes its version from tauri.conf.json, not from the tag.
+      # If those drift, the release ships artifacts labelled with the wrong
+      # version, so stop before spending ten minutes on the build.
+      - name: Check the tag matches the manifests
+        if: steps.meta.outputs.release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          want="${{ steps.meta.outputs.version }}"
+          tauri_ver="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          pkg_ver="$(node -p "require('./package.json').version")"
+          cargo_ver="$(grep -m1 '^version = ' src-tauri/Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
+
+          fail=0
+          for pair in "src-tauri/tauri.conf.json:${tauri_ver}" \
+                      "package.json:${pkg_ver}" \
+                      "src-tauri/Cargo.toml:${cargo_ver}"; do
+            file="${pair%%:*}"; got="${pair#*:}"
+            if [ "$got" != "$want" ]; then
+              echo "::error file=${file}::${file} is at ${got}, but the tag says ${want}"
+              fail=1
+            else
+              echo "ok  ${file} = ${got}"
+            fi
+          done
+          if [ "$fail" = "1" ]; then
+            echo "Bump every manifest to ${want}, commit, then move the tag."
+            exit 1
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          # One cache for the whole workflow rather than one per tag.
+          shared-key: windows-release
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run tests
+        working-directory: src-tauri
+        run: cargo test --locked
+
+      # target/ is restored from cache, so bundles from an earlier version can
+      # still be sitting there. Clear them out so the collect step can only
+      # ever find what this run produced.
+      - name: Clear stale bundles
+        shell: bash
+        run: rm -rf src-tauri/target/release/bundle
+
+      # Also type-checks the frontend: beforeBuildCommand runs `tsc --noEmit`.
+      - name: Build
+        run: npm run tauri build
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          version="${{ steps.meta.outputs.version }}"
+          mkdir -p release
+
+          # Globs are scoped to this version rather than left open: a bare
+          # *-setup.exe would silently match a leftover build and then break
+          # when it matched two.
+          pick() {
+            local label="$1"; shift
+            if [ "$#" -ne 1 ]; then
+              echo "::error::expected exactly one ${label} for ${version}, found $#: $*" >&2
+              return 1
+            fi
+            printf '%s\n' "$1"
+          }
+
+          nsis="$(pick 'NSIS installer' \
+            src-tauri/target/release/bundle/nsis/*_"${version}"_*-setup.exe)"
+          msi="$(pick 'MSI package' \
+            src-tauri/target/release/bundle/msi/*_"${version}"_*.msi)"
+
+          # Bundle names contain a space ("Tree Archiver_1.0.0_x64-setup.exe"),
+          # which becomes %20 in a download URL. Rename on the way out.
+          cp "src-tauri/target/release/tree-archiver.exe" \
+             "release/TreeArchiver-${version}-x64-portable.exe"
+          cp "$nsis" "release/TreeArchiver-${version}-x64-setup.exe"
+          cp "$msi"  "release/TreeArchiver-${version}-x64.msi"
+
+          cd release
+          sha256sum ./*.exe ./*.msi | sed 's|\./||' > checksums.txt
+          ls -lh
+          cat checksums.txt
+
+      - name: Assemble release notes
+        if: steps.meta.outputs.release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash .github/scripts/release-notes.sh \
+            "${{ steps.meta.outputs.version }}" > notes.md
+          echo "--- release notes ---"
+          cat notes.md
+
+      # Uploaded even on a manual run, so a build can be checked without
+      # publishing anything.
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tree-archiver-${{ steps.meta.outputs.version }}-windows-x64
+          path: release/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish the release
+        if: steps.meta.outputs.release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Tree Archiver ${{ steps.meta.outputs.version }}
+          body_path: notes.md
+          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
+          fail_on_unmatched_files: true
+          files: |
+            release/TreeArchiver-${{ steps.meta.outputs.version }}-x64-setup.exe
+            release/TreeArchiver-${{ steps.meta.outputs.version }}-x64-portable.exe
+            release/TreeArchiver-${{ steps.meta.outputs.version }}-x64.msi
+            release/checksums.txt

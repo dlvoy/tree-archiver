@@ -18,6 +18,10 @@ npm run tauri build    # NSIS + MSI installers in src-tauri/target/release/bundl
 Requires Rust (MSVC toolchain), Node 20+, and the WebView2 runtime, which ships
 with Windows 10/11.
 
+Prebuilt installers are attached to each [release](https://github.com/dlvoy/tree-archiver/releases).
+See [BUILDING.md](BUILDING.md) for the full toolchain setup, the release
+pipeline, and how to cut a version.
+
 ## Designing an archive
 
 Drop folders anywhere in the window, or use **Add folders** / **Add files**.

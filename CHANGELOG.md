@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Tagged releases now carry prebuilt Windows downloads — an installer, a
+  portable executable, an MSI package, and SHA-256 checksums — so the app no
+  longer has to be built from source to be used.
+
 ## [1.0.0] - 2026-08-23
 
 ### Added
