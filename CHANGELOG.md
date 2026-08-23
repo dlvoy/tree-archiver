@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-08-23
+
+### Fixed
+
+- The Windows uninstall list showed a fragment of the application identifier
+  where the publisher should be. It now shows the publisher's full name, in
+  both the installer and the MSI package.
+
 ## [1.2.0] - 2026-08-23
 
 ### Added
@@ -128,7 +136,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Archive entries are named relative to the root's parent, so extracting produces
   one top-level folder instead of scattering files into the current directory.
 
-[Unreleased]: https://github.com/dlvoy/tree-archiver/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/dlvoy/tree-archiver/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/dlvoy/tree-archiver/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/dlvoy/tree-archiver/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/dlvoy/tree-archiver/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/dlvoy/tree-archiver/releases/tag/v1.0.0
