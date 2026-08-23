@@ -7,7 +7,8 @@
 use crate::fsutil;
 use crate::model::arena::{Arena, CheckState, NodeId, NodeKind};
 use crate::model::sort::{sort_children, SortKey};
-use crate::plan::{archive_path, Compression, OutputOptions};
+use crate::naming::NamingContext;
+use crate::plan::{Compression, OutputOptions, PathMode};
 use serde::Serialize;
 use std::fs::File;
 use std::io::{self, BufWriter, Read, Write};
@@ -32,45 +33,70 @@ pub struct Entry {
 ///
 /// A node that is `Unchecked` is skipped outright, subtree and all. `Partial`
 /// directories are entered so their surviving children come through.
-pub fn collect_entries(arena: &Arena, root: NodeId, sort: SortKey) -> Vec<Entry> {
+pub fn collect_entries(
+    arena: &Arena,
+    root: NodeId,
+    sort: SortKey,
+    mode: PathMode,
+    ctx: &NamingContext,
+) -> Vec<Entry> {
     let mut out = Vec::new();
-    visit(arena, root, root, sort, &mut out);
+    visit(arena, root, sort, mode, ctx, &mut out);
     out
 }
 
-fn visit(arena: &Arena, root: NodeId, id: NodeId, sort: SortKey, out: &mut Vec<Entry>) {
+fn visit(
+    arena: &Arena,
+    id: NodeId,
+    sort: SortKey,
+    mode: PathMode,
+    ctx: &NamingContext,
+    out: &mut Vec<Entry>,
+) {
     let node = arena.node(id);
     if node.check == CheckState::Unchecked {
         return;
     }
 
+    // `entry_name` returns None for a directory that only leads to a staged
+    // folder without being inside one. Such a directory contributes no entry
+    // but is still walked, because the staged folders sit beneath it.
+    let named = node
+        .path
+        .as_deref()
+        .and_then(|p| ctx.entry_name(mode, p).map(|n| (n, p.to_path_buf())));
+
     match node.kind {
         NodeKind::File => {
-            out.push(Entry {
-                name: archive_path(arena, root, id),
-                path: node.path.clone(),
-                is_dir: false,
-                size: node.own_size,
-            });
+            if let Some((name, path)) = named {
+                out.push(Entry {
+                    name,
+                    path: Some(path),
+                    is_dir: false,
+                    size: node.own_size,
+                });
+            }
             return;
         }
         // Neither the synthetic root nor the `<files>` group is a real
         // directory, so neither gets an entry — only their contents do.
         NodeKind::SyntheticRoot | NodeKind::FilesGroup => {}
         NodeKind::Dir { .. } => {
-            out.push(Entry {
-                name: archive_path(arena, root, id),
-                path: node.path.clone(),
-                is_dir: true,
-                size: 0,
-            });
+            if let Some((name, path)) = named {
+                out.push(Entry {
+                    name,
+                    path: Some(path),
+                    is_dir: true,
+                    size: 0,
+                });
+            }
         }
     }
 
     let mut kids = arena.children(id).to_vec();
     sort_children(arena, &mut kids, sort);
     for k in kids {
-        visit(arena, root, k, sort, out);
+        visit(arena, k, sort, mode, ctx, out);
     }
 }
 
@@ -585,6 +611,7 @@ mod tests {
     use super::*;
     use crate::model::arena::FILES_GROUP_NAME;
     use crate::model::check;
+    use crate::naming::NamingContext;
     use crate::roots::{rebuild, CheckSnapshot, Sources};
     use crate::scan::{scan_path, ScanDir, ScanFile, Source, SourceTree};
     use std::collections::HashSet;
@@ -605,7 +632,7 @@ mod tests {
     }
 
     /// C:\proj  app/{src/{main.rs}, target/{big.o}}  docs/{notes.md}
-    fn fixture() -> (Arena, NodeId) {
+    fn fixture() -> (Arena, NodeId, NamingContext) {
         let mut s = Sources::new();
         s.add(Source {
             path: PathBuf::from(r"C:\proj"),
@@ -627,7 +654,14 @@ mod tests {
         });
         let mut arena = Arena::new();
         let root = rebuild(&mut arena, &s, &CheckSnapshot::new()).root.unwrap();
-        (arena, root)
+        let ctx = NamingContext::from_sources(s.iter());
+        (arena, root, ctx)
+    }
+
+    /// With a single staged folder every mode agrees, so the default is used
+    /// throughout except where a test says otherwise.
+    fn entries_of(arena: &Arena, root: NodeId, ctx: &NamingContext) -> Vec<Entry> {
+        collect_entries(arena, root, SortKey::default(), PathMode::FoldersOnly, ctx)
     }
 
     fn names(entries: &[Entry]) -> Vec<String> {
@@ -636,8 +670,8 @@ mod tests {
 
     #[test]
     fn every_checked_node_becomes_an_entry() {
-        let (arena, root) = fixture();
-        let e = collect_entries(&arena, root, SortKey::default());
+        let (arena, root, ctx) = fixture();
+        let e = entries_of(&arena, root, &ctx);
         let n: HashSet<String> = names(&e).into_iter().collect();
 
         assert!(n.contains("proj"));
@@ -650,11 +684,11 @@ mod tests {
 
     #[test]
     fn an_unchecked_folder_contributes_nothing_at_all() {
-        let (mut arena, root) = fixture();
+        let (mut arena, root, ctx) = fixture();
         let target = arena.find_by_path(Path::new(r"C:\proj\app\target")).unwrap();
         check::set_checked(&mut arena, target, false);
 
-        let e = collect_entries(&arena, root, SortKey::default());
+        let e = entries_of(&arena, root, &ctx);
         let n = names(&e);
 
         // Neither the directory entry nor anything beneath it.
@@ -666,13 +700,13 @@ mod tests {
 
     #[test]
     fn a_partial_directory_is_entered_not_skipped() {
-        let (mut arena, root) = fixture();
+        let (mut arena, root, ctx) = fixture();
         let big = arena
             .find_by_path(Path::new(r"C:\proj\app\target\big.o"))
             .unwrap();
         check::set_checked(&mut arena, big, false);
 
-        let n = names(&collect_entries(&arena, root, SortKey::default()));
+        let n = names(&entries_of(&arena, root, &ctx));
         // The folder stays, since small.o keeps it only partially excluded.
         assert!(n.contains(&"proj/app/target".to_string()));
         assert!(n.contains(&"proj/app/target/small.o".to_string()));
@@ -749,14 +783,15 @@ mod tests {
     }
 
     /// Scans a real directory and returns its arena.
-    fn scan_fixture(t: &TempTree) -> (Arena, NodeId) {
+    fn scan_fixture(t: &TempTree) -> (Arena, NodeId, NamingContext) {
         let cancel = Arc::new(AtomicBool::new(false));
         let out = scan_path(&t.0, &cancel, |_, _| {}).unwrap();
         let mut s = Sources::new();
         s.add(out.source);
         let mut arena = Arena::new();
         let root = rebuild(&mut arena, &s, &CheckSnapshot::new()).root.unwrap();
-        (arena, root)
+        let ctx = NamingContext::from_sources(s.iter());
+        (arena, root, ctx)
     }
 
     fn tar_names(path: &Path) -> Vec<String> {
@@ -773,9 +808,9 @@ mod tests {
         let t = TempTree::new("write");
         t.file("keep/a.txt", 100);
         t.file("keep/b.txt", 250);
-        let (arena, root) = scan_fixture(&t);
+        let (arena, root, ctx) = scan_fixture(&t);
 
-        let entries = collect_entries(&arena, root, SortKey::default());
+        let entries = entries_of(&arena, root, &ctx);
         let est = estimate(&entries);
         let out = t.0.join("..").join(format!("{}-out.tar", t.0.file_name().unwrap().to_string_lossy()));
 
@@ -806,12 +841,12 @@ mod tests {
         let t = TempTree::new("exclude");
         t.file("keep/a.txt", 10);
         t.file("drop/secret.txt", 10);
-        let (mut arena, root) = scan_fixture(&t);
+        let (mut arena, root, ctx) = scan_fixture(&t);
 
         let drop_id = arena.find_by_path(&fsutil::canonical(&t.0.join("drop")).unwrap()).unwrap();
         check::set_checked(&mut arena, drop_id, false);
 
-        let entries = collect_entries(&arena, root, SortKey::default());
+        let entries = entries_of(&arena, root, &ctx);
         let out = t.0.join("..").join("tree-archiver-exclude-out.tar");
         let cancel = Arc::new(AtomicBool::new(false));
         let summary = run(&entries, &out, OutputOptions::default(), cancel, |_| {}, |_| {});
@@ -830,9 +865,9 @@ mod tests {
         let t = TempTree::new("missing");
         t.file("a.txt", 10);
         t.file("vanishes.txt", 10);
-        let (arena, root) = scan_fixture(&t);
+        let (arena, root, ctx) = scan_fixture(&t);
 
-        let entries = collect_entries(&arena, root, SortKey::default());
+        let entries = entries_of(&arena, root, &ctx);
         // Delete after scanning, so the entry survives into the write phase.
         fs::remove_file(t.0.join("vanishes.txt")).unwrap();
 
@@ -868,9 +903,9 @@ mod tests {
         let t = TempTree::new("gzip");
         // Highly compressible content, so the gap is unambiguous.
         t.file("big.txt", 200_000);
-        let (arena, root) = scan_fixture(&t);
+        let (arena, root, ctx) = scan_fixture(&t);
 
-        let entries = collect_entries(&arena, root, SortKey::default());
+        let entries = entries_of(&arena, root, &ctx);
         let est = estimate(&entries);
         let out = t.0.join("..").join("tree-archiver-gzip-out.tar.gz");
         let cancel = Arc::new(AtomicBool::new(false));
@@ -880,6 +915,7 @@ mod tests {
             OutputOptions {
                 compression: Compression::Gzip,
                 gzip_level: 6,
+                path_mode: PathMode::FoldersOnly,
             },
             cancel,
             |_| {},
@@ -900,8 +936,8 @@ mod tests {
     fn cancelling_deletes_the_partial_archive() {
         let t = TempTree::new("cancel");
         t.file("a.txt", 1000);
-        let (arena, root) = scan_fixture(&t);
-        let entries = collect_entries(&arena, root, SortKey::default());
+        let (arena, root, ctx) = scan_fixture(&t);
+        let entries = entries_of(&arena, root, &ctx);
 
         let out = t.0.join("..").join("tree-archiver-cancel-out.tar");
         let cancel = Arc::new(AtomicBool::new(true));
@@ -917,8 +953,8 @@ mod tests {
         let t = TempTree::new("progress");
         t.file("a.bin", 5000);
         t.file("b.bin", 7000);
-        let (arena, root) = scan_fixture(&t);
-        let entries = collect_entries(&arena, root, SortKey::default());
+        let (arena, root, ctx) = scan_fixture(&t);
+        let entries = entries_of(&arena, root, &ctx);
         let est = estimate(&entries);
 
         let out = t.0.join("..").join("tree-archiver-progress-out.tar");

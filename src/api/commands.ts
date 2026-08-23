@@ -14,6 +14,9 @@ export type NodeKind = "dir" | "file" | "filesGroup" | "syntheticRoot";
 export type SortBy = "name" | "size";
 export type SortDir = "asc" | "desc";
 export type Compression = "none" | "gzip";
+/** How much of a file's original path is kept inside the archive. */
+export type PathMode = "foldersOnly" | "commonRoot" | "fullPath";
+export type ThemePreference = "system" | "light" | "dark";
 
 export interface NodeView {
   id: NodeId;
@@ -66,6 +69,39 @@ export interface CheckUpdate {
 export interface OutputOptions {
   compression: Compression;
   gzipLevel: number;
+  pathMode: PathMode;
+}
+
+export interface Settings {
+  version: number;
+  theme: ThemePreference;
+  sort: SortKey;
+  output: OutputOptions;
+}
+
+/**
+ * Which layouts are usable, and what an entry looks like in each. A mode is
+ * unavailable when two folders would land on the same name.
+ */
+export interface PathModeOptions {
+  foldersOnly: boolean;
+  commonRoot: boolean;
+  foldersOnlyReason: string | null;
+  commonRootReason: string | null;
+  foldersOnlySample: string | null;
+  commonRootSample: string | null;
+  fullPathSample: string | null;
+}
+
+export interface Branch {
+  key: string;
+  id: NodeId;
+  children: NodeView[];
+}
+
+export interface RestoredView {
+  branches: Branch[];
+  selected: NodeId | null;
 }
 
 export interface Estimate {
@@ -157,7 +193,23 @@ export const loadPlan = (path: string) =>
 export const setOutput = (options: OutputOptions) =>
   invoke<void>("set_output", { options });
 
-export const estimate = () => invoke<Estimate>("estimate");
+export const estimate = (mode?: PathMode) =>
+  invoke<Estimate>("estimate", { mode: mode ?? null });
+
+export const pathModeOptions = () =>
+  invoke<PathModeOptions>("path_mode_options");
+
+/**
+ * Re-opens branches by path after a rebuild renumbered every node. One round
+ * trip regardless of how many are open.
+ */
+export const restoreView = (expanded: string[], selected: string | null) =>
+  invoke<RestoredView>("restore_view", { expanded, selected });
+
+export const getSettings = () => invoke<Settings>("get_settings");
+
+export const saveSettings = (settings: Settings) =>
+  invoke<void>("save_settings", { settings });
 
 export const suggestedOutputName = () =>
   invoke<string>("suggested_output_name");

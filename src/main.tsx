@@ -3,6 +3,20 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./styles/app.css";
 
+// Paint in the right palette from the first frame. `settings.json` is the real
+// source of truth, but it is a round trip away; this only covers the gap.
+(() => {
+  let pref: string | null = null;
+  try {
+    pref = localStorage.getItem("theme");
+  } catch {
+    // Storage can be refused; the OS setting is a fine answer on its own.
+  }
+  const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.dataset.theme =
+    pref === "light" || pref === "dark" ? pref : dark ? "dark" : "light";
+})();
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />

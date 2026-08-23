@@ -1,5 +1,17 @@
-import type { ScanProgress, SortBy, SortDir, SortKey } from "../api/commands";
+import type {
+  ScanProgress,
+  SortBy,
+  SortDir,
+  SortKey,
+  ThemePreference,
+} from "../api/commands";
 import * as fmt from "../lib/format";
+
+const THEME_LABEL: Record<ThemePreference, string> = {
+  system: "System (follows Windows)",
+  light: "Light",
+  dark: "Dark",
+};
 
 export function Toolbar({
   sort,
@@ -18,14 +30,14 @@ export function Toolbar({
   onSavePlan,
   onLoadPlan,
   onCancelScan,
-  onToggleTheme,
+  onCycleTheme,
 }: {
   sort: SortKey;
   hasTree: boolean;
   canRemove: boolean;
   scanning: boolean;
   scanProgress: ScanProgress | null;
-  theme: "light" | "dark";
+  theme: ThemePreference;
   onAddFolders: () => void;
   onAddFiles: () => void;
   onRemove: () => void;
@@ -36,7 +48,7 @@ export function Toolbar({
   onSavePlan: () => void;
   onLoadPlan: () => void;
   onCancelScan: () => void;
-  onToggleTheme: () => void;
+  onCycleTheme: () => void;
 }) {
   const flip = (by: SortBy) => {
     if (sort.by === by) onSort(by, sort.dir === "asc" ? "desc" : "asc");
@@ -90,20 +102,11 @@ export function Toolbar({
         <button
           type="button"
           className="btn btn--icon"
-          onClick={onToggleTheme}
-          aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-          title={theme === "dark" ? "Light theme" : "Dark theme"}
+          onClick={onCycleTheme}
+          aria-label={`Theme: ${THEME_LABEL[theme]}. Change it.`}
+          title={`Theme: ${THEME_LABEL[theme]}`}
         >
-          {theme === "dark" ? (
-            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
-              <circle cx="8" cy="8" r="3.1" />
-              <path d="M8 1v1.6M8 13.4V15M15 8h-1.6M2.6 8H1M12.9 3.1l-1.1 1.1M4.2 11.8l-1.1 1.1M12.9 12.9l-1.1-1.1M4.2 4.2L3.1 3.1" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round">
-              <path d="M13.5 9.8A6 6 0 0 1 6.2 2.5a6 6 0 1 0 7.3 7.3z" />
-            </svg>
-          )}
+          <ThemeMark theme={theme} />
         </button>
       </div>
 
@@ -163,6 +166,31 @@ export function Toolbar({
         )}
       </div>
     </header>
+  );
+}
+
+/** Monitor, sun, moon — the state the button is in, not the one it moves to. */
+function ThemeMark({ theme }: { theme: ThemePreference }) {
+  if (theme === "system") {
+    return (
+      <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="1.6" y="2.6" width="12.8" height="8.6" rx="1" />
+        <path d="M5.6 14h4.8M8 11.2V14" />
+      </svg>
+    );
+  }
+  if (theme === "light") {
+    return (
+      <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+        <circle cx="8" cy="8" r="3.1" />
+        <path d="M8 1v1.6M8 13.4V15M15 8h-1.6M2.6 8H1M12.9 3.1l-1.1 1.1M4.2 11.8l-1.1 1.1M12.9 12.9l-1.1-1.1M4.2 4.2L3.1 3.1" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round">
+      <path d="M13.5 9.8A6 6 0 0 1 6.2 2.5a6 6 0 1 0 7.3 7.3z" />
+    </svg>
   );
 }
 

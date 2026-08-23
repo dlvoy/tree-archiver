@@ -13,12 +13,20 @@ use tree_archiver_lib::fsutil;
 use tree_archiver_lib::model::arena::{Arena, CheckState, NodeId};
 use tree_archiver_lib::model::check;
 use tree_archiver_lib::model::sort::SortKey;
-use tree_archiver_lib::plan::{self, Action, OutputOptions, Scope};
+use tree_archiver_lib::naming::NamingContext;
+use tree_archiver_lib::plan::{self, Action, OutputOptions, PathMode, Scope};
 use tree_archiver_lib::roots::{rebuild, CheckSnapshot, Sources};
 use tree_archiver_lib::scan::scan_path;
 
 struct Fixture {
     root: PathBuf,
+}
+
+struct Scanned {
+    arena: Arena,
+    root: NodeId,
+    ctx: NamingContext,
+    issues: Vec<tree_archiver_lib::scan::ScanIssue>,
 }
 
 impl Fixture {
@@ -72,17 +80,32 @@ impl Fixture {
             .unwrap_or(false)
     }
 
-    fn scan(&self) -> (Arena, NodeId, Vec<tree_archiver_lib::scan::ScanIssue>) {
+    fn scan(&self) -> Scanned {
+        self.scan_paths(&[self.root.clone()])
+    }
+
+    /// Scans an explicit set of sources, so a test can force the common
+    /// ancestor higher than any one of them.
+    fn scan_paths(&self, paths: &[PathBuf]) -> Scanned {
         let cancel = Arc::new(AtomicBool::new(false));
-        let out = scan_path(&self.root, &cancel, |_, _| {}).expect("the fixture must scan");
-        let issues = out.issues.clone();
         let mut sources = Sources::new();
-        sources.add(out.source);
+        let mut issues = Vec::new();
+        for p in paths {
+            let out = scan_path(p, &cancel, |_, _| {}).expect("the fixture must scan");
+            issues.extend(out.issues.clone());
+            sources.add(out.source);
+        }
         let mut arena = Arena::new();
         let root = rebuild(&mut arena, &sources, &CheckSnapshot::new())
             .root
             .expect("a scanned source must produce a root");
-        (arena, root, issues)
+        let ctx = NamingContext::from_sources(sources.iter());
+        Scanned {
+            arena,
+            root,
+            ctx,
+            issues,
+        }
     }
 
     fn out_file(&self, name: &str) -> PathBuf {
@@ -126,9 +149,9 @@ fn tar_entries(path: &Path) -> Vec<String> {
 fn scans_paths_longer_than_the_legacy_limit() {
     let fx = Fixture::build("deep");
     fx.add_deep_path();
-    let (arena, root, _) = fx.scan();
+    let Scanned { arena, root, ctx, .. } = fx.scan();
 
-    let entries = archive::collect_entries(&arena, root, SortKey::default());
+    let entries = archive::collect_entries(&arena, root, SortKey::default(), PathMode::FoldersOnly, &ctx);
     let found = entries.iter().find(|e| e.name.ends_with("buried.txt"));
     assert!(found.is_some(), "the file past 260 characters must be scanned");
     assert_eq!(found.unwrap().size, 17);
@@ -138,9 +161,9 @@ fn scans_paths_longer_than_the_legacy_limit() {
 fn writes_and_reads_back_an_entry_past_the_legacy_limit() {
     let fx = Fixture::build("deepwrite");
     fx.add_deep_path();
-    let (arena, root, _) = fx.scan();
+    let Scanned { arena, root, ctx, .. } = fx.scan();
 
-    let entries = archive::collect_entries(&arena, root, SortKey::default());
+    let entries = archive::collect_entries(&arena, root, SortKey::default(), PathMode::FoldersOnly, &ctx);
     let out = fx.out_file("tree-archiver-e2e-deep.tar");
     let summary = archive::run(
         &entries,
@@ -169,7 +192,7 @@ fn a_junction_cycle_is_recorded_but_never_followed() {
         return;
     }
 
-    let (arena, root, issues) = fx.scan();
+    let Scanned { arena, root, ctx, issues } = fx.scan();
 
     // The scan terminated, which is the headline result. Had the junction been
     // followed, it would have recursed until the path length gave out.
@@ -178,7 +201,7 @@ fn a_junction_cycle_is_recorded_but_never_followed() {
         "the junction should be reported: {issues:?}"
     );
 
-    let names: Vec<String> = archive::collect_entries(&arena, root, SortKey::default())
+    let names: Vec<String> = archive::collect_entries(&arena, root, SortKey::default(), PathMode::FoldersOnly, &ctx)
         .into_iter()
         .map(|e| e.name)
         .collect();
@@ -193,7 +216,7 @@ fn a_junction_cycle_is_recorded_but_never_followed() {
 #[test]
 fn an_unchecked_folder_saves_as_one_rule_and_vanishes_from_the_tar() {
     let fx = Fixture::build("exclude");
-    let (mut arena, root, _) = fx.scan();
+    let Scanned { mut arena, root, ctx, .. } = fx.scan();
 
     let target = node(&arena, &fx.root, "app/target");
     check::set_checked(&mut arena, target, false);
@@ -205,7 +228,7 @@ fn an_unchecked_folder_saves_as_one_rule_and_vanishes_from_the_tar() {
     assert_eq!(rules[0].action, Action::Exclude);
     assert_eq!(rules[0].path, "app/target");
 
-    let entries = archive::collect_entries(&arena, root, SortKey::default());
+    let entries = archive::collect_entries(&arena, root, SortKey::default(), PathMode::FoldersOnly, &ctx);
     let out = fx.out_file("tree-archiver-e2e-exclude.tar");
     let summary = archive::run(
         &entries,
@@ -230,7 +253,7 @@ fn an_unchecked_folder_saves_as_one_rule_and_vanishes_from_the_tar() {
 #[test]
 fn a_saved_plan_reloads_to_the_same_selection() {
     let fx = Fixture::build("roundtrip");
-    let (mut arena, root, _) = fx.scan();
+    let Scanned { mut arena, root, .. } = fx.scan();
 
     let target = node(&arena, &fx.root, "app/target");
     let todo = node(&arena, &fx.root, "docs/notes/todo.md");
@@ -242,7 +265,7 @@ fn a_saved_plan_reloads_to_the_same_selection() {
     let json = serde_json::to_string_pretty(&rules).unwrap();
 
     // Rebuild from a fresh scan, exactly as loading a plan does.
-    let (mut fresh, fresh_root, _) = fx.scan();
+    let Scanned { arena: mut fresh, root: fresh_root, .. } = fx.scan();
     let parsed: Vec<plan::Rule> = serde_json::from_str(&json).unwrap();
     let unresolved = plan::apply(&mut fresh, fresh_root, &parsed);
 
@@ -263,8 +286,8 @@ fn a_saved_plan_reloads_to_the_same_selection() {
 #[test]
 fn a_file_lost_after_planning_is_logged_and_the_archive_still_completes() {
     let fx = Fixture::build("lost");
-    let (arena, root, _) = fx.scan();
-    let entries = archive::collect_entries(&arena, root, SortKey::default());
+    let Scanned { arena, root, ctx, .. } = fx.scan();
+    let entries = archive::collect_entries(&arena, root, SortKey::default(), PathMode::FoldersOnly, &ctx);
 
     // Vanishes between planning and writing, the way a build artifact would.
     fs::remove_file(fx.root.join("app/target/big.o")).unwrap();
@@ -297,9 +320,9 @@ fn a_file_lost_after_planning_is_logged_and_the_archive_still_completes() {
 fn the_uncompressed_estimate_matches_the_file_on_disk_exactly() {
     let fx = Fixture::build("estimate");
     fx.add_deep_path();
-    let (arena, root, _) = fx.scan();
+    let Scanned { arena, root, ctx, .. } = fx.scan();
 
-    let entries = archive::collect_entries(&arena, root, SortKey::default());
+    let entries = archive::collect_entries(&arena, root, SortKey::default(), PathMode::FoldersOnly, &ctx);
     let est = archive::estimate(&entries);
     let out = fx.out_file("tree-archiver-e2e-estimate.tar");
     let summary = archive::run(
@@ -322,11 +345,11 @@ fn the_uncompressed_estimate_matches_the_file_on_disk_exactly() {
 #[test]
 fn extracting_the_archive_reproduces_the_selected_files() {
     let fx = Fixture::build("extract");
-    let (mut arena, root, _) = fx.scan();
+    let Scanned { mut arena, root, ctx, .. } = fx.scan();
     let target = node(&arena, &fx.root, "app/target");
     check::set_checked(&mut arena, target, false);
 
-    let entries = archive::collect_entries(&arena, root, SortKey::default());
+    let entries = archive::collect_entries(&arena, root, SortKey::default(), PathMode::FoldersOnly, &ctx);
     let out = fx.out_file("tree-archiver-e2e-extract.tar");
     archive::run(
         &entries,
@@ -354,4 +377,107 @@ fn extracting_the_archive_reproduces_the_selected_files() {
 
     let _ = fs::remove_dir_all(&dest);
     let _ = fs::remove_file(&out);
+}
+
+/// Unpacks `tar` into a fresh directory and lists its top level.
+fn unpack_top_level(tar_path: &Path, dest: &Path) -> Vec<String> {
+    let _ = fs::remove_dir_all(dest);
+    fs::create_dir_all(dest).unwrap();
+    tar::Archive::new(fs::File::open(tar_path).unwrap())
+        .unpack(dest)
+        .expect("the archive must unpack cleanly");
+    let mut top: Vec<String> = fs::read_dir(dest)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    top.sort();
+    top
+}
+
+/// Two sources side by side, so the common ancestor sits above both. This is
+/// the shape that used to produce absolute entry names when the ancestor was a
+/// drive root; here it exercises all three layouts end to end.
+#[test]
+fn each_path_mode_lays_the_archive_out_as_documented() {
+    let fx = Fixture::build("pathmodes");
+    let sources = vec![fx.root.join("app"), fx.root.join("docs")];
+
+    for (mode, tag) in [
+        (PathMode::FoldersOnly, "folders"),
+        (PathMode::CommonRoot, "common"),
+        (PathMode::FullPath, "full"),
+    ] {
+        let Scanned { arena, root, ctx, .. } = fx.scan_paths(&sources);
+        let entries = archive::collect_entries(&arena, root, SortKey::default(), mode, &ctx);
+        assert!(!entries.is_empty(), "{mode:?} produced no entries");
+
+        // Whatever the layout, a tar entry is never allowed to be absolute.
+        for e in &entries {
+            assert!(!e.name.contains(':'), "{mode:?} produced {:?}", e.name);
+            assert!(!e.name.starts_with('/'), "{mode:?} produced {:?}", e.name);
+        }
+
+        let out = fx.out_file(&format!("tree-archiver-e2e-mode-{tag}.tar"));
+        let summary = archive::run(
+            &entries,
+            &out,
+            OutputOptions::default(),
+            Arc::new(AtomicBool::new(false)),
+            |_| {},
+            |_| {},
+        );
+        assert!(summary.ok, "{mode:?}: {summary:?}");
+        assert_eq!(summary.errors, 0, "{mode:?} logged errors");
+
+        let dest = std::env::temp_dir().join(format!("tree-archiver-e2e-mode-{tag}-dest"));
+        let top = unpack_top_level(&out, &dest);
+
+        match mode {
+            // Each staged folder stands on its own at the top.
+            PathMode::FoldersOnly => {
+                assert_eq!(top, vec!["app".to_string(), "docs".to_string()]);
+                assert_eq!(
+                    fs::read(dest.join("app/src/main.rs")).unwrap().len(),
+                    120
+                );
+            }
+            // One folder: the directory both sources share.
+            PathMode::CommonRoot => {
+                assert_eq!(top.len(), 1, "expected the shared parent alone: {top:?}");
+                let base = dest.join(&top[0]);
+                assert!(base.join("app/src/main.rs").exists());
+                assert!(base.join("docs/CHANGELOG.md").exists());
+            }
+            // The drive letter, with the whole path beneath it.
+            PathMode::FullPath => {
+                assert_eq!(top.len(), 1, "expected one volume folder: {top:?}");
+                assert!(
+                    !top[0].contains(':'),
+                    "the volume folder must not carry a colon: {top:?}"
+                );
+                // The full path is preserved, so the fixture's own name is in there.
+                let deep = walkdown(&dest, "main.rs");
+                assert!(deep.is_some(), "main.rs should exist somewhere under {top:?}");
+            }
+        }
+
+        let _ = fs::remove_dir_all(&dest);
+        let _ = fs::remove_file(&out);
+    }
+}
+
+/// Finds a file by name anywhere beneath `dir`.
+fn walkdown(dir: &Path, name: &str) -> Option<PathBuf> {
+    let entries = fs::read_dir(dir).ok()?;
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            if let Some(found) = walkdown(&p, name) {
+                return Some(found);
+            }
+        } else if p.file_name().map(|f| f == name).unwrap_or(false) {
+            return Some(p);
+        }
+    }
+    None
 }

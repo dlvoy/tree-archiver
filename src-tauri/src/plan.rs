@@ -56,11 +56,27 @@ impl Compression {
     }
 }
 
+/// How much of a file's original path is kept inside the archive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum PathMode {
+    /// Each staged folder sits at the top of the archive, under its own name.
+    #[default]
+    FoldersOnly,
+    /// The folder every staged path shares sits at the top.
+    CommonRoot,
+    /// The whole path is kept, with the drive or share at the top.
+    FullPath,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OutputOptions {
     pub compression: Compression,
     pub gzip_level: u32,
+    /// Absent in v1 plans, which predate the setting.
+    #[serde(default)]
+    pub path_mode: PathMode,
 }
 
 impl Default for OutputOptions {
@@ -68,6 +84,7 @@ impl Default for OutputOptions {
         OutputOptions {
             compression: Compression::None,
             gzip_level: 6,
+            path_mode: PathMode::default(),
         }
     }
 }
@@ -126,23 +143,6 @@ pub fn rel_from_root(arena: &Arena, root: NodeId, id: NodeId) -> String {
     segments.join("/")
 }
 
-/// Path used for entries inside the tar. Same namespace as `rel_from_root`
-/// but prefixed with the root folder's own name, so an extraction lands in one
-/// top-level directory instead of spraying files into the current folder.
-pub fn archive_path(arena: &Arena, root: NodeId, id: NodeId) -> String {
-    let root_node = arena.node(root);
-    if root_node.kind == NodeKind::SyntheticRoot {
-        // The synthetic root is not a real folder; volume segments already
-        // provide the top level.
-        return rel_from_root(arena, root, id);
-    }
-    let rel = rel_from_root(arena, root, id);
-    if rel.is_empty() {
-        root_node.name.clone()
-    } else {
-        format!("{}/{}", root_node.name, rel)
-    }
-}
 
 /// Reduces the tree's check state to the smallest rule set that reproduces it.
 ///
@@ -333,14 +333,6 @@ mod tests {
         assert_eq!(rel_from_root(&arena, root, root), "");
         let target = node_at(&arena, r"C:\proj\app\target");
         assert_eq!(rel_from_root(&arena, root, target), "app/target");
-    }
-
-    #[test]
-    fn archive_paths_carry_the_root_folder_name() {
-        let (arena, root, _) = fixture();
-        let main = node_at(&arena, r"C:\proj\app\src\main.rs");
-        assert_eq!(archive_path(&arena, root, main), "proj/app/src/main.rs");
-        assert_eq!(archive_path(&arena, root, root), "proj");
     }
 
     #[test]
@@ -557,8 +549,6 @@ mod tests {
         let d = node_at(&arena, r"D:\proj");
         assert_eq!(rel_from_root(&arena, root, c), "C/proj");
         assert_eq!(rel_from_root(&arena, root, d), "D/proj");
-        // Archive paths match, since the synthetic root is not a real folder.
-        assert_eq!(archive_path(&arena, root, d), "D/proj");
     }
 
     #[test]

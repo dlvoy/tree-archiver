@@ -10,10 +10,15 @@ use crate::fsutil;
 use crate::model::arena::{Arena, CheckState, NodeId, NodeKind};
 use crate::model::check;
 use crate::model::sort::{sort_children, SortBy, SortDir, SortKey};
-use crate::plan::{self, ArchivePlan, Compression, OutputOptions, UnresolvedRule, PLAN_VERSION};
+use crate::naming::{self, ModeAvailability, NamingContext};
+use crate::plan::{
+    self, ArchivePlan, Compression, OutputOptions, PathMode, UnresolvedRule, PLAN_VERSION,
+};
 use crate::roots::{rebuild, snapshot_checks, Sources};
 use crate::scan::{scan_path, ScanIssue};
+use crate::settings::{self, Settings};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -333,6 +338,122 @@ pub fn get_summary(state: State<'_, AppState>) -> Cmd<Summary> {
     Ok(summary(&t))
 }
 
+
+// ---------------------------------------------------------------- view state
+
+/// A key that survives a rebuild.
+///
+/// Adding or removing a source renumbers every node, so ids cannot be used to
+/// remember which branches were open. Paths can.
+fn view_key(arena: &Arena, id: NodeId) -> Option<String> {
+    let n = arena.node(id);
+    match n.kind {
+        // The group has no path of its own, so it is keyed by its parent.
+        NodeKind::FilesGroup => {
+            let parent = n.parent?;
+            let p = arena.node(parent).path.as_deref()?;
+            Some(format!("{}\u{0}<files>", fsutil::display_path(p)))
+        }
+        NodeKind::SyntheticRoot => Some("\u{0}sources".into()),
+        _ => n.path.as_deref().map(fsutil::display_path),
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Branch {
+    pub key: String,
+    pub id: NodeId,
+    pub children: Vec<NodeView>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoredView {
+    pub branches: Vec<Branch>,
+    pub selected: Option<NodeId>,
+}
+
+/// Re-opens the branches named by `expanded` after a rebuild, in one round
+/// trip regardless of how many are open. Keys that no longer resolve are
+/// dropped, which is the right outcome when their source was removed.
+#[tauri::command]
+pub fn restore_view(
+    state: State<'_, AppState>,
+    expanded: Vec<String>,
+    selected: Option<String>,
+) -> Cmd<RestoredView> {
+    let t = lock(&state)?;
+    let Some(root) = t.root else {
+        return Ok(RestoredView {
+            branches: Vec::new(),
+            selected: None,
+        });
+    };
+
+    let mut index: HashMap<String, NodeId> = HashMap::new();
+    for d in t.arena.descendants(root) {
+        if let Some(k) = view_key(&t.arena, d) {
+            index.insert(k, d);
+        }
+    }
+
+    // A branch is only visible if everything above it is open too, and a
+    // rebuild can insert levels that were never in the saved set — a higher
+    // common root, or the synthetic root that appears with a second volume. So
+    // each resolved branch drags its ancestors open with it.
+    let mut open: HashSet<NodeId> = HashSet::new();
+    for k in &expanded {
+        let Some(&id) = index.get(k) else { continue };
+        let mut cur = Some(id);
+        while let Some(c) = cur {
+            if !open.insert(c) {
+                break; // this chain was already walked
+            }
+            cur = t.arena.node(c).parent;
+        }
+    }
+
+    let branches = open
+        .into_iter()
+        .filter(|&id| !t.arena.children(id).is_empty())
+        .filter_map(|id| {
+            let key = view_key(&t.arena, id)?;
+            let mut kids = t.arena.children(id).to_vec();
+            sort_children(&t.arena, &mut kids, t.sort);
+            Some(Branch {
+                key,
+                id,
+                children: kids.into_iter().map(|c| view(&t.arena, c)).collect(),
+            })
+        })
+        .collect();
+
+    Ok(RestoredView {
+        branches,
+        selected: selected.and_then(|s| index.get(&s).copied()),
+    })
+}
+
+// ---------------------------------------------------------------- settings
+
+#[tauri::command]
+pub fn get_settings(app: AppHandle) -> Settings {
+    settings::load(&app)
+}
+
+/// Applies the settings to the running session as well as writing them, so
+/// there is one path for "the user changed a preference".
+#[tauri::command]
+pub fn save_settings(app: AppHandle, state: State<'_, AppState>, settings: Settings) -> Cmd<()> {
+    {
+        let mut t = lock(&state)?;
+        t.sort = settings.sort;
+        t.output = settings.output;
+    }
+    settings::save(&app, &settings)
+}
+
 // ---------------------------------------------------------------- plan I/O
 
 #[tauri::command]
@@ -469,22 +590,76 @@ pub fn set_output(state: State<'_, AppState>, options: OutputOptions) -> Cmd<()>
     Ok(())
 }
 
+/// Entry names differ per mode, and a name over 100 bytes costs an extra
+/// header block, so the predicted size is mode-specific.
 #[tauri::command]
-pub fn estimate(state: State<'_, AppState>) -> Cmd<Estimate> {
+pub fn estimate(state: State<'_, AppState>, mode: Option<PathMode>) -> Cmd<Estimate> {
     let t = lock(&state)?;
     let root = t.root.ok_or("there is nothing to archive yet")?;
+    let ctx = NamingContext::from_sources(t.sources.iter());
+    let mode = mode.unwrap_or(t.output.path_mode);
     Ok(archive::estimate(&archive::collect_entries(
-        &t.arena, root, t.sort,
+        &t.arena, root, t.sort, mode, &ctx,
     )))
+}
+
+/// Which path modes can be used without two folders colliding at the top of
+/// the archive, plus a sample entry name for each so the dialog can show what
+/// the choice actually does.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathModeOptions {
+    #[serde(flatten)]
+    pub availability: ModeAvailability,
+    pub folders_only_sample: Option<String>,
+    pub common_root_sample: Option<String>,
+    pub full_path_sample: Option<String>,
+}
+
+#[tauri::command]
+pub fn path_mode_options(state: State<'_, AppState>) -> Cmd<PathModeOptions> {
+    let t = lock(&state)?;
+    let ctx = NamingContext::from_sources(t.sources.iter());
+    let sample_path = t
+        .root
+        .map(|r| first_named_descendant(&t.arena, r))
+        .unwrap_or(None);
+
+    let sample = |mode: PathMode| -> Option<String> {
+        sample_path.as_deref().and_then(|p| ctx.entry_name(mode, p))
+    };
+
+    Ok(PathModeOptions {
+        availability: naming::available_modes(&ctx),
+        folders_only_sample: sample(PathMode::FoldersOnly),
+        common_root_sample: sample(PathMode::CommonRoot),
+        full_path_sample: sample(PathMode::FullPath),
+    })
+}
+
+/// A representative file, for the sample entry names. Falls back to any node
+/// with a path when the tree holds no files at all.
+fn first_named_descendant(arena: &Arena, root: NodeId) -> Option<PathBuf> {
+    let mut fallback = None;
+    for d in arena.descendants(root) {
+        let n = arena.node(d);
+        let Some(p) = &n.path else { continue };
+        if n.kind.is_file() {
+            return Some(p.clone());
+        }
+        fallback.get_or_insert_with(|| p.clone());
+    }
+    fallback
 }
 
 /// A sensible default file name: the root folder plus today's date.
 #[tauri::command]
 pub fn suggested_output_name(state: State<'_, AppState>) -> Cmd<String> {
     let t = lock(&state)?;
+    // A drive-root tree is named `C:\`, which would sanitise to "C__".
     let stem = t
         .root
-        .map(|r| t.arena.node(r).name.clone())
+        .and_then(|r| t.arena.node(r).path.as_deref().map(naming::safe_name))
         .unwrap_or_else(|| "archive".into());
     let safe: String = stem
         .chars()
@@ -516,7 +691,9 @@ pub fn start_archive(
         let root = t.root.ok_or("there is nothing to archive yet")?;
         t.output = request.options;
         let sort = t.sort;
-        archive::collect_entries(&t.arena, root, sort)
+        let mode = request.options.path_mode;
+        let ctx = NamingContext::from_sources(t.sources.iter());
+        archive::collect_entries(&t.arena, root, sort, mode, &ctx)
     };
 
     if entries.is_empty() {

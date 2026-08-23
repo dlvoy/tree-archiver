@@ -7,11 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-23
+
 ### Added
 
+- The build dialog now chooses how much of each path is kept inside the
+  archive: **Folders only**, putting every staged folder at the top;
+  **Common root**, keeping the folder they share; or **Full path**, keeping
+  everything including the drive letter. Folders only is the default. A layout
+  in which two folders would collide and silently merge is offered as
+  unavailable, with the clashing name given.
+- A third theme setting, **System**, which follows the Windows light or dark
+  preference and changes with it while the app is open. It is the new default.
 - Tagged releases now carry prebuilt Windows downloads — an installer, a
   portable executable, an MSI package, and SHA-256 checksums — so the app no
   longer has to be built from source to be used.
+
+### Changed
+
+- Theme, sort order, path layout, compression, and gzip level are remembered
+  between runs, so the app opens the way it was last left.
+- Adding or removing a source no longer collapses the tree. Open branches and
+  the selected row are restored afterwards, including when the new source
+  changes where the root sits.
+- An archive plan reopened from disk brings its compression and layout settings
+  with it.
+
+### Fixed
+
+- Staging folders that sit under different top-level directories of one drive —
+  say `C:\Users\Nick\.aws` alongside `C:\DOWN\bd` — produced an archive in which
+  every single entry failed to be added, because the drive root leaked into the
+  entry names and made them absolute. Entry names are now derived so that a
+  drive root can never appear in one.
+- The suggested output file name no longer comes out as `C__` when the staged
+  paths span a whole drive.
 
 ## [1.0.0] - 2026-08-23
 
@@ -66,5 +96,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Archive entries are named relative to the root's parent, so extracting produces
   one top-level folder instead of scattering files into the current directory.
 
-[Unreleased]: https://github.com/dlvoy/tree-archiver/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/dlvoy/tree-archiver/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/dlvoy/tree-archiver/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/dlvoy/tree-archiver/releases/tag/v1.0.0
