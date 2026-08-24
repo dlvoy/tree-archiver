@@ -21,6 +21,7 @@ export const TreeRow = memo(function TreeRow({
   selected,
   expanded,
   loading,
+  byCount,
   onToggleExpand,
   onToggleCheck,
   onSelect,
@@ -29,6 +30,8 @@ export const TreeRow = memo(function TreeRow({
   selected: boolean;
   expanded: boolean;
   loading: boolean;
+  /** Show item counts instead of byte sizes, for Count sort mode. */
+  byCount: boolean;
   onToggleExpand: () => void;
   onToggleCheck: () => void;
   onSelect: () => void;
@@ -37,8 +40,10 @@ export const TreeRow = memo(function TreeRow({
   const { node, depth, guides } = row;
   const container = node.kind !== "file";
   const partial = node.check === "partial";
-  const fraction =
-    node.totalSize > 0 ? node.selSize / node.totalSize : node.check === "checked" ? 1 : 0;
+  const sel = byCount ? node.selItems : node.selSize;
+  const total = byCount ? node.totalItems : node.totalSize;
+  const show = byCount ? fmt.count : fmt.bytes;
+  const fraction = total > 0 ? sel / total : node.check === "checked" ? 1 : 0;
 
   return (
     <div
@@ -108,13 +113,13 @@ export const TreeRow = memo(function TreeRow({
         <span className="row__figures">
           {partial ? (
             <>
-              <span className="row__sel">{fmt.bytes(node.selSize)}</span>
+              <span className="row__sel">{show(sel)}</span>
               <span className="row__of">/</span>
-              <span className="row__total">{fmt.bytes(node.totalSize)}</span>
+              <span className="row__total">{show(total)}</span>
             </>
           ) : (
             <span className="row__sel">
-              {fmt.bytes(node.check === "checked" ? node.totalSize : node.selSize)}
+              {show(node.check === "checked" ? total : sel)}
             </span>
           )}
         </span>

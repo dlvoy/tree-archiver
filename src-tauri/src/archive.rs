@@ -1281,6 +1281,17 @@ mod tests {
         assert!(!n.iter().any(|s| s.contains(FILES_GROUP_NAME)));
     }
 
+    /// Pins `Node::total_items` (Count sort mode) to the figure the Build
+    /// dialog already shows: on a tree with a single source and no spine
+    /// complications, every real node produces exactly one entry.
+    #[test]
+    fn total_items_matches_the_entry_count_the_build_dialog_shows() {
+        let (arena, root, ctx) = fixture();
+        let entries = entries_of(&arena, root, &ctx);
+        let est = estimate(&entries);
+        assert_eq!(arena.node(root).total_items, est.entries);
+    }
+
     #[test]
     fn an_unchecked_folder_contributes_nothing_at_all() {
         let (mut arena, root, ctx) = fixture();

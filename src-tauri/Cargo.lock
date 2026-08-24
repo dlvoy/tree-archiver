@@ -4163,7 +4163,7 @@ dependencies = [
 
 [[package]]
 name = "tree-archiver"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "dunce",
  "flate2",

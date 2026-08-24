@@ -145,6 +145,7 @@ export function TreeView({
                 selected={store.selected === id}
                 expanded={store.expanded.has(id)}
                 loading={store.loading.has(id)}
+                byCount={store.sort.by === "count"}
                 onToggleExpand={() => void store.toggleExpand(id)}
                 onToggleCheck={() => void store.toggleCheck(id)}
                 onSelect={() => store.select(id)}

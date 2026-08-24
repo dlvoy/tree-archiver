@@ -11,7 +11,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 export type NodeId = number;
 export type CheckState = "checked" | "unchecked" | "partial";
 export type NodeKind = "dir" | "file" | "filesGroup" | "syntheticRoot";
-export type SortBy = "name" | "size";
+export type SortBy = "name" | "size" | "count";
 export type SortDir = "asc" | "desc";
 export type Compression = "none" | "gzip" | "7z";
 /** How much of a file's original path is kept inside the archive. */
@@ -38,6 +38,8 @@ export interface NodeView {
   totalSize: number;
   selFiles: number;
   totalFiles: number;
+  selItems: number;
+  totalItems: number;
   path: string | null;
   /** The ruleset that auto-excluded this node, if any — `null` for
    * everything else, including a plain manual uncheck. */
@@ -284,6 +286,9 @@ export const cancelArchive = () => invoke<void>("cancel_archive");
 export const cancelScan = () => invoke<void>("cancel_scan");
 
 export const saveLog = (path: string) => invoke<number>("save_log", { path });
+
+export const saveEntryList = (path: string, mode?: PathMode) =>
+  invoke<number>("save_entry_list", { path, mode: mode ?? null });
 
 // ------------------------------------------------------------ explorer menu
 

@@ -68,6 +68,7 @@ pub fn run() {
             commands::cancel_archive,
             commands::cancel_scan,
             commands::save_log,
+            commands::save_entry_list,
             commands::output_extension,
             commands::restore_view,
             commands::path_mode_options,

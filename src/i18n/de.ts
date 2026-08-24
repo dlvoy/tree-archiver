@@ -20,6 +20,7 @@ export const de: Record<keyof typeof en, Phrase> = {
   "toolbar.sort": "Sortierung",
   "toolbar.sortName": "Name",
   "toolbar.sortSize": "Größe",
+  "toolbar.sortCount": "Anzahl",
   "toolbar.selection": "Auswahl",
   "toolbar.checkAll": "Alle auswählen",
   "toolbar.uncheckAll": "Auswahl aufheben",
@@ -108,6 +109,14 @@ export const de: Record<keyof typeof en, Phrase> = {
   "build.filterTar": "Tar-Archiv",
   "build.filterTarGz": "Gzip-Tar-Archiv",
   "build.filter7z": "7z-Archiv",
+  "build.saveEntries": "Eintragsliste speichern",
+  "build.saveEntriesTitle": "Eintragsliste speichern unter",
+  "build.filterText": "Textdatei",
+  "build.savedEntries": {
+    one: "{count} Eintrag gespeichert.",
+    other: "{count} Einträge gespeichert.",
+  },
+  "build.preparing": "Eintragsliste wird vorbereitet…",
 
   // ---------------------------------------------------------------- progress
   "progress.building": "Archiv wird erstellt",

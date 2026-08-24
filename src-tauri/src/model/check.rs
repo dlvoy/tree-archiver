@@ -4,7 +4,7 @@
 //! recompute each ancestor's selected totals and derived state. Cost is
 //! O(subtree) down plus O(depth) up.
 
-use super::arena::{Arena, CheckState, NodeId};
+use super::arena::{Arena, CheckState, NodeId, NodeKind};
 
 /// Applies `checked` to `id` and its entire subtree, then repairs ancestors.
 /// Returns the ancestor ids whose displayed state may have changed, ordered
@@ -21,6 +21,7 @@ pub fn set_checked(arena: &mut Arena, id: NodeId, checked: bool) -> Vec<NodeId> 
         n.check = state;
         n.sel_size = if checked { n.total_size } else { 0 };
         n.sel_files = if checked { n.total_files } else { 0 };
+        n.sel_items = if checked { n.total_items } else { 0 };
     }
 
     repair_ancestors(arena, id)
@@ -41,12 +42,21 @@ pub fn repair_ancestors(arena: &mut Arena, id: NodeId) -> Vec<NodeId> {
 /// empty directory stays checkable in its own right.
 pub fn recompute_from_children(arena: &mut Arena, id: NodeId) {
     let kids = arena.children(id).to_vec();
+
     if kids.is_empty() {
+        // Sel_size/sel_files/check keep whatever they already had (see the
+        // doc comment above), but total_items still counts this node itself
+        // regardless of children, so sel_items needs the same self-inclusive
+        // treatment here — otherwise a fully checked empty folder would show
+        // 0 of 1 in Count mode instead of a full meter.
+        let node = arena.node_mut(id);
+        node.sel_items = self_item(node.check, node.kind);
         return;
     }
 
     let mut sel_size = 0u64;
     let mut sel_files = 0u64;
+    let mut sel_items = 0u64;
     let mut all_checked = true;
     let mut all_unchecked = true;
 
@@ -54,6 +64,7 @@ pub fn recompute_from_children(arena: &mut Arena, id: NodeId) {
         let n = arena.node(k);
         sel_size = sel_size.saturating_add(n.sel_size);
         sel_files += n.sel_files;
+        sel_items += n.sel_items;
         match n.check {
             CheckState::Checked => all_unchecked = false,
             CheckState::Unchecked => all_checked = false,
@@ -74,6 +85,18 @@ pub fn recompute_from_children(arena: &mut Arena, id: NodeId) {
     } else {
         CheckState::Partial
     };
+    node.sel_items = sel_items + self_item(node.check, node.kind);
+}
+
+/// 1 when `kind` produces its own archive entry and `check` is not wholly
+/// `Unchecked`, mirroring `collect_entries`'s only skip condition; 0 for the
+/// pathless `FilesGroup`/`SyntheticRoot`, which never contribute one.
+fn self_item(check: CheckState, kind: NodeKind) -> u64 {
+    if check != CheckState::Unchecked && !matches!(kind, NodeKind::FilesGroup | NodeKind::SyntheticRoot) {
+        1
+    } else {
+        0
+    }
 }
 
 /// Rebuilds selected totals and check state for the whole arena bottom-up,
@@ -87,6 +110,7 @@ pub fn recompute_all(arena: &mut Arena) {
             let checked = n.check == CheckState::Checked;
             n.sel_size = if checked { n.total_size } else { 0 };
             n.sel_files = if checked { 1 } else { 0 };
+            n.sel_items = if checked { 1 } else { 0 };
         } else {
             recompute_from_children(arena, id);
         }
@@ -141,6 +165,9 @@ mod tests {
         assert_eq!(f.arena.node(f.root).check, CheckState::Checked);
         assert_eq!(f.arena.node(f.root).sel_size, 700);
         assert_eq!(f.arena.node(f.root).sel_files, 3);
+        // root, docs, a, b, img, c: every real node counts itself.
+        assert_eq!(f.arena.node(f.root).total_items, 6);
+        assert_eq!(f.arena.node(f.root).sel_items, 6);
     }
 
     #[test]
@@ -169,6 +196,10 @@ mod tests {
         assert_eq!(f.arena.node(f.root).sel_files, 2);
         // total_size is disk truth and must not move.
         assert_eq!(f.arena.node(f.root).total_size, 700);
+        // docs is Partial, not Unchecked, so it still counts itself: b (1) + docs itself (1).
+        assert_eq!(f.arena.node(f.docs).sel_items, 2);
+        assert_eq!(f.arena.node(f.root).sel_items, 5);
+        assert_eq!(f.arena.node(f.root).total_items, 6);
     }
 
     #[test]
@@ -190,6 +221,23 @@ mod tests {
         assert_eq!(f.arena.node(f.root).sel_size, 700);
         assert_eq!(f.arena.node(f.root).check, CheckState::Checked);
         assert_eq!(f.arena.node(f.img).check, CheckState::Checked);
+    }
+
+    #[test]
+    fn a_checked_empty_folder_still_counts_itself() {
+        let mut arena = Arena::new();
+        let root = arena.add(None, "root".into(), NodeKind::Dir { scanned: true });
+        let empty = arena.add(Some(root), "empty".into(), NodeKind::Dir { scanned: true });
+        arena.recompute_totals();
+        recompute_all(&mut arena);
+
+        // An empty directory has nothing to roll up from, but it is still
+        // one archive entry, and it starts Checked (Node::new's default).
+        assert_eq!(arena.node(empty).total_items, 1);
+        assert_eq!(arena.node(empty).sel_items, 1);
+
+        set_checked(&mut arena, empty, false);
+        assert_eq!(arena.node(empty).sel_items, 0);
     }
 
     #[test]

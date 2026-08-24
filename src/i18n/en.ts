@@ -17,6 +17,7 @@ export const en = {
   "toolbar.sort": "Sort",
   "toolbar.sortName": "Name",
   "toolbar.sortSize": "Size",
+  "toolbar.sortCount": "Count",
   "toolbar.selection": "Selection",
   "toolbar.checkAll": "Check all",
   "toolbar.uncheckAll": "Uncheck all",
@@ -105,6 +106,14 @@ export const en = {
   "build.filterTar": "Tar archive",
   "build.filterTarGz": "Gzipped tar",
   "build.filter7z": "7z archive",
+  "build.saveEntries": "Save the entry list",
+  "build.saveEntriesTitle": "Save entry list as",
+  "build.filterText": "Text file",
+  "build.savedEntries": {
+    one: "Saved {count} entry.",
+    other: "Saved {count} entries.",
+  },
+  "build.preparing": "Preparing the entry list…",
 
   // ---------------------------------------------------------------- progress
   "progress.building": "Building archive",

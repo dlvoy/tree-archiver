@@ -171,6 +171,8 @@ pub struct NodeView {
     pub total_size: u64,
     pub sel_files: u64,
     pub total_files: u64,
+    pub sel_items: u64,
+    pub total_items: u64,
     pub path: Option<String>,
     /// The ruleset that auto-excluded this node, if any — `None` for
     /// everything else, including a plain manual uncheck.
@@ -197,6 +199,8 @@ fn view(arena: &Arena, auto: &HashMap<PathBuf, String>, id: NodeId) -> NodeView 
         total_size: n.total_size,
         sel_files: n.sel_files,
         total_files: n.total_files,
+        sel_items: n.sel_items,
+        total_items: n.total_items,
         path: n.path.as_deref().map(fsutil::display_path),
         auto_ignore: n.path.as_ref().and_then(|p| auto.get(p)).cloned(),
     }
@@ -1005,8 +1009,10 @@ pub fn set_output(state: State<'_, AppState>, options: OutputOptions) -> Cmd<()>
 }
 
 /// Entry names differ per mode, and a name over 100 bytes costs an extra
-/// header block, so the predicted size is mode-specific.
-#[tauri::command]
+/// header block, so the predicted size is mode-specific. Runs off the main
+/// thread: collecting every entry can take a noticeable moment on a large
+/// tree, and this is re-run on every path-mode change.
+#[tauri::command(async)]
 pub fn estimate(state: State<'_, AppState>, mode: Option<PathMode>) -> Cmd<Estimate> {
     let t = lock(&state)?;
     let root = t.root.ok_or("there is nothing to archive yet")?;
@@ -1090,7 +1096,10 @@ pub struct ArchiveRequest {
     pub options: OutputOptions,
 }
 
-#[tauri::command]
+/// Runs off the main thread: collecting and reordering every entry runs here
+/// before the writer thread is even spawned, and on a large tree that is
+/// seconds of otherwise-frozen window.
+#[tauri::command(async)]
 pub fn start_archive(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1222,6 +1231,46 @@ pub fn save_log(state: State<'_, AppState>, path: String) -> Cmd<usize> {
     Ok(log.len())
 }
 
+/// Writes the exact list the archive will hold, in write order: the tree's
+/// own sort decides traversal, then `file_order` decides how files are
+/// grouped. Takes an explicit `mode` because entry names are mode-specific
+/// and the dialog's choice isn't committed to state until Start — reuses the
+/// same two calls `start_archive` does, so the file can never disagree with
+/// what actually gets written. Runs off the main thread like `start_archive`,
+/// since collecting and reordering entries is the same cost either does.
+#[tauri::command(async)]
+pub fn save_entry_list(
+    state: State<'_, AppState>,
+    path: String,
+    mode: Option<PathMode>,
+) -> Cmd<usize> {
+    let entries = {
+        let t = lock(&state)?;
+        let root = t.root.ok_or("there is nothing to archive yet")?;
+        let ctx = NamingContext::from_sources(t.sources.iter());
+        let mode = mode.unwrap_or(t.output.path_mode);
+        let entries = archive::collect_entries(&t.arena, root, t.sort, mode, &ctx);
+        crate::file_order::reorder(entries, t.file_order)
+    };
+
+    let text = entry_list_text(&entries);
+    std::fs::write(&path, text).map_err(|e| format!("could not write the entry list: {e}"))?;
+    Ok(entries.len())
+}
+
+/// One line per entry, directories slash-terminated, in the order given.
+fn entry_list_text(entries: &[Entry]) -> String {
+    let mut text = String::new();
+    for e in entries {
+        text.push_str(&e.name);
+        if e.is_dir {
+            text.push('/');
+        }
+        text.push('\n');
+    }
+    text
+}
+
 /// Scan problems are surfaced separately from the archive log, since they
 /// happen while the user is still designing.
 #[tauri::command]
@@ -1278,10 +1327,26 @@ pub fn app_info() -> AppInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::{app_info, is_ruleset_checked, paths_from_args, Progress, ProgressThrottle};
+    use super::{app_info, entry_list_text, is_ruleset_checked, paths_from_args, Progress, ProgressThrottle};
+    use crate::archive::Entry;
     use crate::ignore_rules::IgnoreRuleset;
     use crate::settings::Settings;
     use std::time::Duration;
+
+    /// Directories get a trailing slash and files don't, one per line, in
+    /// the order given — `save_entry_list` never reorders what it is handed.
+    #[test]
+    fn entry_list_text_slash_terminates_only_directories() {
+        let entries = vec![
+            Entry { name: "proj".into(), path: None, is_dir: true, size: 0 },
+            Entry { name: "proj/src".into(), path: None, is_dir: true, size: 0 },
+            Entry { name: "proj/src/main.rs".into(), path: None, is_dir: false, size: 100 },
+        ];
+        assert_eq!(
+            entry_list_text(&entries),
+            "proj/\nproj/src/\nproj/src/main.rs\n"
+        );
+    }
 
     fn ruleset(id: &str, default_checked: bool) -> IgnoreRuleset {
         IgnoreRuleset {

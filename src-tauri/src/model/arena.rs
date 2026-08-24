@@ -65,6 +65,14 @@ pub struct Node {
     pub sel_size: u64,
     pub total_files: u64,
     pub sel_files: u64,
+    /// Archive entries this node contributes, itself included: 1 for a file,
+    /// 1 + subtree for a real directory, and subtree-only for the pathless
+    /// `FilesGroup`/`SyntheticRoot`, which produce no entry of their own.
+    /// Disk truth — never changes when boxes are checked, so Count sorting
+    /// is as stable as Size sorting.
+    pub total_items: u64,
+    /// The same figure over the `Checked`/`Partial` portion.
+    pub sel_items: u64,
     pub check: CheckState,
     /// Lowercased extension, drives icon choice.
     pub ext: Option<String>,
@@ -84,6 +92,8 @@ impl Node {
             sel_size: 0,
             total_files: 0,
             sel_files: 0,
+            total_items: 0,
+            sel_items: 0,
             check: CheckState::Checked,
             ext: None,
         }
@@ -184,17 +194,26 @@ impl Arena {
             if self.nodes[i].kind.is_file() {
                 self.nodes[i].total_size = self.nodes[i].own_size;
                 self.nodes[i].total_files = 1;
+                self.nodes[i].total_items = 1;
                 continue;
             }
             let mut size = 0u64;
             let mut files = 0u64;
+            let mut items = 0u64;
             for idx in 0..self.nodes[i].children.len() {
                 let c = self.nodes[i].children[idx] as usize;
                 size = size.saturating_add(self.nodes[c].total_size);
                 files += self.nodes[c].total_files;
+                items += self.nodes[c].total_items;
+            }
+            // A `FilesGroup`/`SyntheticRoot` contributes no archive entry of
+            // its own, only its subtree's; a real directory counts itself.
+            if !matches!(self.nodes[i].kind, NodeKind::FilesGroup | NodeKind::SyntheticRoot) {
+                items += 1;
             }
             self.nodes[i].total_size = size;
             self.nodes[i].total_files = files;
+            self.nodes[i].total_items = items;
         }
     }
 }

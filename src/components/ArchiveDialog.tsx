@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import * as api from "../api/commands";
 import type {
@@ -52,6 +52,11 @@ export function ArchiveDialog({
   const [suggestion, setSuggestion] = useState<string>("archive.tar");
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [savingEntries, setSavingEntries] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  // Both Start and Save-the-entry-list pay the same collect-and-reorder
+  // cost, which can take a noticeable moment on a large tree.
+  const busy = starting || savingEntries;
 
   const set = (patch: Partial<OutputOptions>) =>
     onOptionsChange({ ...options, ...patch });
@@ -126,6 +131,27 @@ export function ArchiveDialog({
     }
   };
 
+  const saveEntries = async () => {
+    const stem = (outPath || suggestion).replace(EXT_RE, "");
+    const chosen = await save({
+      title: t("build.saveEntriesTitle"),
+      defaultPath: `${stem}-entries.txt`,
+      filters: [{ name: t("build.filterText"), extensions: ["txt"] }],
+    });
+    if (!chosen) return;
+    setError(null);
+    setNote(null);
+    setSavingEntries(true);
+    try {
+      const n = await api.saveEntryList(chosen, options.pathMode);
+      setNote(t("build.savedEntries", { count: n }));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSavingEntries(false);
+    }
+  };
+
   const gz = options.compression === "gzip";
   const sevenz = options.compression === "7z";
   // Only an uncompressed tar has a size that can be predicted exactly.
@@ -156,6 +182,10 @@ export function ArchiveDialog({
 
   return (
     <Modal title={t("build.title")} onClose={onClose}>
+      {/* A native fieldset disables and dims every field for free while the
+          collect-and-reorder pass runs, whether Start or the entry-list save
+          triggered it — Cancel/actions live outside it and stay clickable. */}
+      <fieldset className="build__fields" disabled={busy}>
       <div className="field">
         <label className="field__label" htmlFor="outpath">
           {t("build.output")}
@@ -285,7 +315,22 @@ export function ArchiveDialog({
       <div className="titleblock">
         <div className="titleblock__head">{t("build.spec")}</div>
         <dl className="titleblock__grid">
-          <Field label={t("build.entries")} value={est ? fmt.count(est.entries) : "—"} />
+          <Field
+            label={t("build.entries")}
+            value={est ? fmt.count(est.entries) : "—"}
+            action={
+              <button
+                type="button"
+                className="btn btn--icon"
+                title={t("build.saveEntries")}
+                aria-label={t("build.saveEntries")}
+                disabled={!est || est.entries === 0}
+                onClick={() => void saveEntries()}
+              >
+                <SaveMark />
+              </button>
+            }
+          />
           <Field label={t("build.files")} value={est ? fmt.count(est.files) : "—"} />
           <Field label={t("build.content")} value={est ? fmt.bytes(est.payloadBytes) : "—"} />
           <Field
@@ -296,7 +341,18 @@ export function ArchiveDialog({
           />
         </dl>
       </div>
+      </fieldset>
 
+      {busy && (
+        <div className="build__busy">
+          <span className="meter meter--busy" aria-hidden="true">
+            <span className="meter__fill" />
+          </span>
+          <p className="build__busy-label">{t("build.preparing")}</p>
+        </div>
+      )}
+
+      {note && <p className="alert alert--info">{note}</p>}
       {error && <p className="alert alert--error">{error}</p>}
 
       <div className="modal__actions">
@@ -307,7 +363,7 @@ export function ArchiveDialog({
           type="button"
           className="btn btn--go"
           onClick={start}
-          disabled={starting || !est || est.entries === 0}
+          disabled={busy || !est || est.entries === 0}
         >
           {starting ? t("build.starting") : t("build.start")}
         </button>
@@ -321,11 +377,13 @@ function Field({
   value,
   note,
   strong,
+  action,
 }: {
   label: string;
   value: string;
   note?: string;
   strong?: boolean;
+  action?: ReactNode;
 }) {
   return (
     <div className={`tbfield ${strong ? "tbfield--strong" : ""}`}>
@@ -333,8 +391,29 @@ function Field({
       <dd className="tbfield__value">
         {value}
         {note && <span className="tbfield__note">{note}</span>}
+        {action}
       </dd>
     </div>
+  );
+}
+
+function SaveMark() {
+  return (
+    <svg
+      viewBox="0 0 14 14"
+      width="12"
+      height="12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M2.5 2.5h7l2 2v7h-9z" />
+      <path d="M4.5 2.5v3.5h4v-3.5" />
+      <path d="M4.5 11.5v-3.2h5v3.2" />
+    </svg>
   );
 }
 

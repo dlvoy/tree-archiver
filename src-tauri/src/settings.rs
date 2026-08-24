@@ -354,6 +354,18 @@ mod tests {
     }
 
     #[test]
+    fn a_count_sort_choice_round_trips() {
+        let s = Settings {
+            sort: SortKey { by: SortBy::Count, dir: SortDir::Desc },
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains(r#""sort":{"by":"count","dir":"desc"}"#), "{json}");
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.sort.by, SortBy::Count);
+    }
+
+    #[test]
     fn settings_round_trip_through_json() {
         let s = Settings {
             theme: ThemePreference::Dark,

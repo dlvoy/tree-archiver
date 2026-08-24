@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-08-24
+
+### Added
+
+- A **Count** sort mode (Toolbar → Sort) orders folders by how many archive
+  entries they contribute instead of by size, and the tree's "X / Y" figures
+  switch to item counts while it's active.
+- A **Save the entry list** button in the Build dialog writes the exact list
+  of entries the archive will contain — one line per entry, directories
+  slash-terminated, in write order — to a text file without building the
+  archive first.
+
+### Fixed
+
+- Starting an archive, or changing the path mode in the Build dialog, no
+  longer freezes the window on a large tree: entry collection now runs off
+  the main thread, with the dialog's fields disabled and a busy indicator
+  shown while it does.
+
 ## [1.5.0] - 2026-08-24
 
 ### Added
@@ -220,7 +239,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Archive entries are named relative to the root's parent, so extracting produces
   one top-level folder instead of scattering files into the current directory.
 
-[Unreleased]: https://github.com/dlvoy/tree-archiver/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/dlvoy/tree-archiver/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/dlvoy/tree-archiver/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/dlvoy/tree-archiver/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/dlvoy/tree-archiver/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/dlvoy/tree-archiver/compare/v1.2.1...v1.3.0

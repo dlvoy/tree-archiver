@@ -9,6 +9,7 @@ use std::cmp::Ordering;
 pub enum SortBy {
     Name,
     Size,
+    Count,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,6 +107,10 @@ pub fn sort_children(arena: &Arena, ids: &mut [NodeId], key: SortKey) {
                 .total_size
                 .cmp(&ny.total_size)
                 .then_with(|| natural_cmp(&nx.name, &ny.name)),
+            SortBy::Count => nx
+                .total_items
+                .cmp(&ny.total_items)
+                .then_with(|| natural_cmp(&nx.name, &ny.name)),
         };
 
         match key.dir {
@@ -142,10 +147,18 @@ mod tests {
     fn dir_fixture() -> (Arena, NodeId) {
         let mut a = Arena::new();
         let root = a.add(None, "root".into(), NodeKind::Dir { scanned: true });
-        for (name, size) in [("zeta", 10u64), ("alpha", 500), ("mid10", 50), ("mid2", 90)] {
+        // Item counts deliberately disagree with the size ordering, so a
+        // Count-mode test can't pass by accident of sharing Size's order.
+        for (name, size, items) in [
+            ("zeta", 10u64, 100u64),
+            ("alpha", 500, 1),
+            ("mid10", 50, 50),
+            ("mid2", 90, 10),
+        ] {
             let d = a.add(Some(root), name.into(), NodeKind::Dir { scanned: true });
             a.node_mut(d).own_size = size;
             a.node_mut(d).total_size = size;
+            a.node_mut(d).total_items = items;
         }
         a.add(Some(root), FILES_GROUP_NAME.into(), NodeKind::FilesGroup);
         (a, root)
@@ -169,6 +182,22 @@ mod tests {
         let mut ids = a.children(root).to_vec();
         sort_children(&a, &mut ids, SortKey { by: SortBy::Size, dir: SortDir::Desc });
         assert_eq!(names(&a, &ids), ["alpha", "mid2", "mid10", "zeta", FILES_GROUP_NAME]);
+    }
+
+    #[test]
+    fn count_sort_ascending_orders_by_total_items() {
+        let (a, root) = dir_fixture();
+        let mut ids = a.children(root).to_vec();
+        sort_children(&a, &mut ids, SortKey { by: SortBy::Count, dir: SortDir::Asc });
+        assert_eq!(names(&a, &ids), ["alpha", "mid2", "mid10", "zeta", FILES_GROUP_NAME]);
+    }
+
+    #[test]
+    fn count_sort_descending_still_sinks_the_files_group() {
+        let (a, root) = dir_fixture();
+        let mut ids = a.children(root).to_vec();
+        sort_children(&a, &mut ids, SortKey { by: SortBy::Count, dir: SortDir::Desc });
+        assert_eq!(names(&a, &ids), ["zeta", "mid10", "mid2", "alpha", FILES_GROUP_NAME]);
     }
 
     #[test]

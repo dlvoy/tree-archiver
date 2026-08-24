@@ -21,6 +21,7 @@ export const pl: Record<keyof typeof en, Phrase> = {
   "toolbar.sort": "Sortowanie",
   "toolbar.sortName": "Nazwa",
   "toolbar.sortSize": "Rozmiar",
+  "toolbar.sortCount": "Liczba",
   "toolbar.selection": "Zaznaczenie",
   "toolbar.checkAll": "Zaznacz wszystko",
   "toolbar.uncheckAll": "Odznacz wszystko",
@@ -111,6 +112,16 @@ export const pl: Record<keyof typeof en, Phrase> = {
   "build.filterTar": "Archiwum tar",
   "build.filterTarGz": "Archiwum tar z gzip",
   "build.filter7z": "Archiwum 7z",
+  "build.saveEntries": "Zapisz listę elementów",
+  "build.saveEntriesTitle": "Zapisz listę elementów jako",
+  "build.filterText": "Plik tekstowy",
+  "build.savedEntries": {
+    one: "Zapisano {count} element.",
+    few: "Zapisano {count} elementy.",
+    many: "Zapisano {count} elementów.",
+    other: "Zapisano {count} elementów.",
+  },
+  "build.preparing": "Przygotowywanie listy elementów…",
 
   // ---------------------------------------------------------------- progress
   "progress.building": "Budowanie archiwum",

@@ -1,6 +1,6 @@
 [package]
 name = "tree-archiver"
-version = "1.5.0"
+version = "1.6.0"
 description = "Plan and build archives with an advanced include/exclude tree"
 authors = ["dominik.dzienia@gmail.com"]
 repository = "https://github.com/dlvoy/tree-archiver"

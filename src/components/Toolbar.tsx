@@ -238,6 +238,17 @@ export function Toolbar({
               {label("toolbar.sortSize")}
               {sort.by === "size" && <Caret dir={sort.dir} />}
             </button>
+            <button
+              type="button"
+              className={`seg__btn ${sort.by === "count" ? "seg__btn--on" : ""}`}
+              onClick={() => flip("count")}
+              title={t("toolbar.sortCount")}
+              aria-label={t("toolbar.sortCount")}
+            >
+              {showIcons && <SortCountMark />}
+              {label("toolbar.sortCount")}
+              {sort.by === "count" && <Caret dir={sort.dir} />}
+            </button>
           </div>
         </div>
 
@@ -465,6 +476,17 @@ function SortSizeMark() {
   return (
     <ToolbarIcon>
       <path d="M3 13V9M7.5 13V6M12 13V3" />
+    </ToolbarIcon>
+  );
+}
+
+function SortCountMark() {
+  return (
+    <ToolbarIcon>
+      {/* A tally of five: four uprights and a crossing stroke, the plainest
+          possible glyph for "count". */}
+      <path d="M3.5 3v10M6 3v10M8.5 3v10M11 3v10" />
+      <path d="M2.5 4.5l9.5 6" />
     </ToolbarIcon>
   );
 }

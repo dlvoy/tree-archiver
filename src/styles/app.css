@@ -681,6 +681,27 @@ input {
   background: transparent;
 }
 
+/* An indeterminate sweep for work with no known duration yet, like the
+   collect-and-reorder pass before an archive actually starts writing. */
+.meter--busy {
+  height: 3px;
+}
+
+.meter--busy .meter__fill {
+  width: 40%;
+  transition: none;
+  animation: meter-sweep 1.1s ease-in-out infinite;
+}
+
+@keyframes meter-sweep {
+  0% {
+    left: -40%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
 /* ---------------------------------------------------------------- empty */
 
 .empty {
@@ -1029,6 +1050,47 @@ input {
   color: var(--ink-3);
   font-weight: 400;
   letter-spacing: 0.02em;
+}
+
+.tbfield__value .btn--icon {
+  width: 19px;
+  height: 19px;
+  margin-left: auto;
+  align-self: center;
+  color: var(--ink-3);
+}
+
+.tbfield__value .btn--icon:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+/* A plain reset: `.build__fields` is a `<fieldset>` used only so `disabled`
+   dims and disables every field inside for free while the entry list is
+   being collected — not for a fieldset's usual grouping/border look. */
+.build__fields {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.build__fields:disabled {
+  opacity: 0.55;
+}
+
+.build__busy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.build__busy-label {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--ink-3);
 }
 
 /* ---------------------------------------------------------------- progress */
