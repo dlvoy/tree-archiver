@@ -92,7 +92,7 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
       </div>
 
       {showLicense && (
-        <Modal title={t("about.licenseTitle")} onClose={() => setShowLicense(false)}>
+        <Modal title={t("about.licenseTitle")} onClose={() => setShowLicense(false)} wider>
           {/* Verbatim and untranslated, which is the only way to show a licence. */}
           <pre className="license">{info?.license ?? ""}</pre>
           <div className="modal__actions">

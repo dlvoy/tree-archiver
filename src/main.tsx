@@ -28,6 +28,11 @@ import { matchLang } from "./i18n";
     lang && lang !== "system" ? lang : matchLang(navigator.language);
 })();
 
+// The native right-click menu carries Reload/Back/Forward, and Reload would
+// wipe the in-memory tree with no warning. Suppressing it costs nothing real:
+// text selection and Ctrl+C/Ctrl+V do not depend on this menu at all.
+window.addEventListener("contextmenu", (e) => e.preventDefault());
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />

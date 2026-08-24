@@ -343,12 +343,15 @@ export function Modal({
   onClose,
   children,
   wide,
+  wider,
   escapes = true,
 }: {
   title: string;
   onClose?: () => void;
   children: React.ReactNode;
   wide?: boolean;
+  /** Wider still — for content that genuinely needs the room, like the licence text. */
+  wider?: boolean;
   /**
    * Set false while a modal of your own is open on top: both would otherwise
    * see the same keydown and Escape would dismiss two dialogs at once.
@@ -367,7 +370,7 @@ export function Modal({
   return (
     <div className="scrim" onClick={escapes ? onClose : undefined}>
       <div
-        className={`modal ${wide ? "modal--wide" : ""}`}
+        className={`modal ${wide ? "modal--wide" : ""} ${wider ? "modal--wider" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}

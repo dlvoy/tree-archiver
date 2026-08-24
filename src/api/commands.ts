@@ -18,6 +18,12 @@ export type Compression = "none" | "gzip" | "7z";
 export type PathMode = "foldersOnly" | "commonRoot" | "fullPath";
 export type ThemePreference = "system" | "light" | "dark";
 export type LanguagePreference = "system" | "en" | "pl" | "de";
+/** How the toolbar draws its labelled-group buttons. The icon-only buttons on
+ * the right (language, theme, settings, about) are unaffected. */
+export type InterfaceMode = "icons" | "labels" | "iconsAndLabels";
+/** The order files are written into the archive in, independent of the
+ * on-screen tree order. */
+export type FileOrder = "optimal" | "asInPlan" | "alphabetical";
 
 export interface NodeView {
   id: NodeId;
@@ -83,6 +89,8 @@ export interface Settings {
   language: LanguagePreference;
   sort: SortKey;
   output: OutputOptions;
+  interfaceMode: InterfaceMode;
+  fileOrder: FileOrder;
 }
 
 /**

@@ -68,6 +68,22 @@ impl Compression {
     }
 }
 
+/// The order files are written into the archive in. Independent of the
+/// on-screen tree order (`SortKey`) and of the plan file — this is a
+/// persistent preference, applied once right before writing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum FileOrder {
+    /// Groups files so similar, likely-duplicate content lands close
+    /// together, which gives compressors more redundancy to find.
+    #[default]
+    Optimal,
+    /// Today's default: the order the tree displays them in.
+    AsInPlan,
+    /// By in-archive path, case-insensitive and numeric-aware.
+    Alphabetical,
+}
+
 /// How much of a file's original path is kept inside the archive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -297,6 +313,14 @@ mod tests {
     use crate::roots::{rebuild, snapshot_checks, CheckSnapshot, Sources};
     use crate::scan::{ScanDir, ScanFile, Source, SourceTree};
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn file_order_serialises_under_its_documented_wire_names() {
+        assert_eq!(serde_json::to_string(&FileOrder::Optimal).unwrap(), r#""optimal""#);
+        assert_eq!(serde_json::to_string(&FileOrder::AsInPlan).unwrap(), r#""asInPlan""#);
+        assert_eq!(serde_json::to_string(&FileOrder::Alphabetical).unwrap(), r#""alphabetical""#);
+        assert_eq!(FileOrder::default(), FileOrder::Optimal);
+    }
 
     #[test]
     fn every_compression_has_its_own_extension() {

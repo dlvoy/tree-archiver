@@ -30,6 +30,8 @@ export const pl: Record<keyof typeof en, Phrase> = {
   "toolbar.scanned": "{files} plików · {bytes}",
   "toolbar.settings": "Ustawienia",
   "toolbar.about": "O programie Tree Archiver",
+  "toolbar.planSaveTip": "Zapisz plan",
+  "toolbar.planOpenTip": "Otwórz plan",
 
   // ---------------------------------------------------------------- theme and language
   "theme.label": "Motyw: {name}",
@@ -170,6 +172,17 @@ export const pl: Record<keyof typeof en, Phrase> = {
   "settings.appearance": "Wygląd",
   "settings.theme": "Motyw",
   "settings.language": "Język",
+  "settings.interface": "Interfejs aplikacji",
+  "settings.interfaceIcons": "Tylko ikony",
+  "settings.interfaceLabels": "Tylko etykiety",
+  "settings.interfaceIconsAndLabels": "Ikony i etykiety",
+  "settings.archiving": "Archiwizacja",
+  "settings.archiveOrder": "Kolejność archiwizacji plików",
+  "settings.archiveOptimal": "Optymalna",
+  "settings.archiveAsInPlan": "Jak w planie",
+  "settings.archiveAlphabetical": "Alfabetyczna",
+  "settings.archiveOrderHint":
+    "Optymalna grupuje podobne pliki, aby zwiększyć skuteczność kompresji. Jak w planie zachowuje dzisiejszą kolejność drzewa. Alfabetyczna sortuje według nazwy.",
   "settings.integration": "Integracja",
   "settings.explorer": "Integracja z Eksploratorem",
   "settings.explorerBody":

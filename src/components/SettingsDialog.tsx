@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import * as api from "../api/commands";
-import type { LanguagePreference, ThemePreference } from "../api/commands";
+import type {
+  FileOrder,
+  InterfaceMode,
+  LanguagePreference,
+  ThemePreference,
+} from "../api/commands";
 import { useT } from "../i18n/context";
 import { LANGS, LANG_NAMES, type Lang } from "../i18n";
 import { Flag } from "./Flag";
@@ -13,14 +18,22 @@ import { Modal } from "./ArchiveDialog";
 export function SettingsDialog({
   theme,
   language,
+  interfaceMode,
+  fileOrder,
   onThemeChange,
   onLanguageChange,
+  onInterfaceModeChange,
+  onFileOrderChange,
   onClose,
 }: {
   theme: ThemePreference;
   language: LanguagePreference;
+  interfaceMode: InterfaceMode;
+  fileOrder: FileOrder;
   onThemeChange: (t: ThemePreference) => void;
   onLanguageChange: (l: LanguagePreference) => void;
+  onInterfaceModeChange: (m: InterfaceMode) => void;
+  onFileOrderChange: (o: FileOrder) => void;
   onClose: () => void;
 }) {
   const t = useT();
@@ -91,6 +104,39 @@ export function SettingsDialog({
             </select>
           </span>
         </label>
+
+        <label className="setting" htmlFor="set-interface">
+          <span className="setting__name">{t("settings.interface")}</span>
+          <select
+            id="set-interface"
+            className="select"
+            value={interfaceMode}
+            onChange={(e) => onInterfaceModeChange(e.target.value as InterfaceMode)}
+          >
+            <option value="icons">{t("settings.interfaceIcons")}</option>
+            <option value="labels">{t("settings.interfaceLabels")}</option>
+            <option value="iconsAndLabels">{t("settings.interfaceIconsAndLabels")}</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="field">
+        <span className="field__label">{t("settings.archiving")}</span>
+
+        <label className="setting" htmlFor="set-file-order">
+          <span className="setting__name">{t("settings.archiveOrder")}</span>
+          <select
+            id="set-file-order"
+            className="select"
+            value={fileOrder}
+            onChange={(e) => onFileOrderChange(e.target.value as FileOrder)}
+          >
+            <option value="optimal">{t("settings.archiveOptimal")}</option>
+            <option value="asInPlan">{t("settings.archiveAsInPlan")}</option>
+            <option value="alphabetical">{t("settings.archiveAlphabetical")}</option>
+          </select>
+        </label>
+        <p className="field__hint">{t("settings.archiveOrderHint")}</p>
       </div>
 
       <div className="field">

@@ -2,6 +2,7 @@ pub mod archive;
 pub mod commands;
 pub mod events;
 pub mod explorer;
+pub mod file_order;
 pub mod fsutil;
 pub mod model;
 pub mod naming;
@@ -34,6 +35,7 @@ pub fn run() {
             if let Ok(mut tree) = state.tree.lock() {
                 tree.sort = saved.sort;
                 tree.output = saved.output;
+                tree.file_order = saved.file_order;
             }
 
             // This instance may itself have been started from the Explorer

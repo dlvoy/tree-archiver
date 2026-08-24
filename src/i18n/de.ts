@@ -29,6 +29,8 @@ export const de: Record<keyof typeof en, Phrase> = {
   "toolbar.scanned": "{files} Dateien · {bytes}",
   "toolbar.settings": "Einstellungen",
   "toolbar.about": "Über Tree Archiver",
+  "toolbar.planSaveTip": "Plan speichern",
+  "toolbar.planOpenTip": "Plan öffnen",
 
   // ---------------------------------------------------------------- theme and language
   "theme.label": "Design: {name}",
@@ -165,6 +167,17 @@ export const de: Record<keyof typeof en, Phrase> = {
   "settings.appearance": "Darstellung",
   "settings.theme": "Design",
   "settings.language": "Sprache",
+  "settings.interface": "App-Oberfläche",
+  "settings.interfaceIcons": "Nur Symbole",
+  "settings.interfaceLabels": "Nur Beschriftungen",
+  "settings.interfaceIconsAndLabels": "Symbole und Beschriftungen",
+  "settings.archiving": "Archivierung",
+  "settings.archiveOrder": "Reihenfolge beim Archivieren",
+  "settings.archiveOptimal": "Optimal",
+  "settings.archiveAsInPlan": "Wie im Plan",
+  "settings.archiveAlphabetical": "Alphabetisch",
+  "settings.archiveOrderHint":
+    "Optimal gruppiert ähnliche Dateien für eine bessere Komprimierung. Wie im Plan verwendet die heutige Baumreihenfolge. Alphabetisch sortiert nach Namen.",
   "settings.integration": "Integration",
   "settings.explorer": "In Explorer integrieren",
   "settings.explorerBody":

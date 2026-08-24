@@ -1,7 +1,9 @@
+import type { ReactNode } from "react";
 import type { ScanProgress, SortBy, SortDir, SortKey } from "../api/commands";
-import type { LanguagePreference, ThemePreference } from "../api/commands";
+import type { InterfaceMode, LanguagePreference, ThemePreference } from "../api/commands";
 import { useT } from "../i18n/context";
 import { LANG_NAMES, type Lang } from "../i18n";
+import type { Key } from "../i18n";
 import { Flag } from "./Flag";
 import * as fmt from "../lib/format";
 
@@ -14,6 +16,7 @@ export function Toolbar({
   theme,
   language,
   resolvedLanguage,
+  interfaceMode,
   onAddFolders,
   onAddFiles,
   onRemove,
@@ -38,6 +41,9 @@ export function Toolbar({
   language: LanguagePreference;
   /** What `system` currently resolves to, for the flag on the button. */
   resolvedLanguage: Lang;
+  /** How the Sources/Plan/Sort/Selection buttons are drawn. The four icon
+   * buttons on the right (language, theme, settings, about) never change. */
+  interfaceMode: InterfaceMode;
   onAddFolders: () => void;
   onAddFiles: () => void;
   onRemove: () => void;
@@ -65,6 +71,15 @@ export function Toolbar({
   const langName =
     language === "system" ? t("lang.systemLong") : LANG_NAMES[language];
 
+  // Only the four buttons on the right (language/theme/settings/about) are
+  // exempt — they are icon-only regardless of this setting.
+  const showIcons = interfaceMode !== "labels";
+  const showLabels = interfaceMode !== "icons";
+
+  /** A group button caption, shown only when labels are on; it also serves as
+   * the accessible tooltip regardless of mode via the button's own title. */
+  const label = (k: Key) => (showLabels ? t(k) : null);
+
   return (
     <header className="bar bar--top">
       <div className="bar__row">
@@ -83,27 +98,72 @@ export function Toolbar({
 
         <div className="group">
           <span className="group__label">{t("toolbar.sources")}</span>
-          <button type="button" className="btn btn--primary" onClick={onAddFolders}>
-            {t("toolbar.addFolders")}
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={onAddFolders}
+            title={t("toolbar.addFolders")}
+            aria-label={t("toolbar.addFolders")}
+          >
+            {showIcons && <AddFoldersMark />}
+            {label("toolbar.addFolders")}
           </button>
-          <button type="button" className="btn" onClick={onAddFiles}>
-            {t("toolbar.addFiles")}
+          <button
+            type="button"
+            className="btn"
+            onClick={onAddFiles}
+            title={t("toolbar.addFiles")}
+            aria-label={t("toolbar.addFiles")}
+          >
+            {showIcons && <AddFilesMark />}
+            {label("toolbar.addFiles")}
           </button>
-          <button type="button" className="btn" onClick={onRemove} disabled={!canRemove}>
-            {t("toolbar.remove")}
+          <button
+            type="button"
+            className="btn"
+            onClick={onRemove}
+            disabled={!canRemove}
+            title={t("toolbar.remove")}
+            aria-label={t("toolbar.remove")}
+          >
+            {showIcons && <RemoveMark />}
+            {label("toolbar.remove")}
           </button>
-          <button type="button" className="btn" onClick={onClear} disabled={!hasTree}>
-            {t("toolbar.clear")}
+          <button
+            type="button"
+            className="btn"
+            onClick={onClear}
+            disabled={!hasTree}
+            title={t("toolbar.clear")}
+            aria-label={t("toolbar.clear")}
+          >
+            {showIcons && <ClearMark />}
+            {label("toolbar.clear")}
           </button>
         </div>
 
         <div className="group">
           <span className="group__label">{t("toolbar.plan")}</span>
-          <button type="button" className="btn" onClick={onSavePlan} disabled={!hasTree}>
-            {t("toolbar.planSave")}
+          <button
+            type="button"
+            className="btn"
+            onClick={onSavePlan}
+            disabled={!hasTree}
+            title={t("toolbar.planSaveTip")}
+            aria-label={t("toolbar.planSaveTip")}
+          >
+            {showIcons && <SaveMark />}
+            {label("toolbar.planSave")}
           </button>
-          <button type="button" className="btn" onClick={onLoadPlan}>
-            {t("toolbar.planOpen")}
+          <button
+            type="button"
+            className="btn"
+            onClick={onLoadPlan}
+            title={t("toolbar.planOpenTip")}
+            aria-label={t("toolbar.planOpenTip")}
+          >
+            {showIcons && <OpenMark />}
+            {label("toolbar.planOpen")}
           </button>
         </div>
 
@@ -158,16 +218,22 @@ export function Toolbar({
               type="button"
               className={`seg__btn ${sort.by === "name" ? "seg__btn--on" : ""}`}
               onClick={() => flip("name")}
+              title={t("toolbar.sortName")}
+              aria-label={t("toolbar.sortName")}
             >
-              {t("toolbar.sortName")}
+              {showIcons && <SortNameMark />}
+              {label("toolbar.sortName")}
               {sort.by === "name" && <Caret dir={sort.dir} />}
             </button>
             <button
               type="button"
               className={`seg__btn ${sort.by === "size" ? "seg__btn--on" : ""}`}
               onClick={() => flip("size")}
+              title={t("toolbar.sortSize")}
+              aria-label={t("toolbar.sortSize")}
             >
-              {t("toolbar.sortSize")}
+              {showIcons && <SortSizeMark />}
+              {label("toolbar.sortSize")}
               {sort.by === "size" && <Caret dir={sort.dir} />}
             </button>
           </div>
@@ -175,14 +241,38 @@ export function Toolbar({
 
         <div className="group">
           <span className="group__label">{t("toolbar.selection")}</span>
-          <button type="button" className="btn btn--quiet" onClick={() => onCheckAll(true)} disabled={!hasTree}>
-            {t("toolbar.checkAll")}
+          <button
+            type="button"
+            className="btn btn--quiet"
+            onClick={() => onCheckAll(true)}
+            disabled={!hasTree}
+            title={t("toolbar.checkAll")}
+            aria-label={t("toolbar.checkAll")}
+          >
+            {showIcons && <CheckAllMark />}
+            {label("toolbar.checkAll")}
           </button>
-          <button type="button" className="btn btn--quiet" onClick={() => onCheckAll(false)} disabled={!hasTree}>
-            {t("toolbar.uncheckAll")}
+          <button
+            type="button"
+            className="btn btn--quiet"
+            onClick={() => onCheckAll(false)}
+            disabled={!hasTree}
+            title={t("toolbar.uncheckAll")}
+            aria-label={t("toolbar.uncheckAll")}
+          >
+            {showIcons && <UncheckAllMark />}
+            {label("toolbar.uncheckAll")}
           </button>
-          <button type="button" className="btn btn--quiet" onClick={onCollapseAll} disabled={!hasTree}>
-            {t("toolbar.collapseAll")}
+          <button
+            type="button"
+            className="btn btn--quiet"
+            onClick={onCollapseAll}
+            disabled={!hasTree}
+            title={t("toolbar.collapseAll")}
+            aria-label={t("toolbar.collapseAll")}
+          >
+            {showIcons && <CollapseAllMark />}
+            {label("toolbar.collapseAll")}
           </button>
         </div>
 
@@ -267,5 +357,126 @@ function Caret({ dir }: { dir: SortDir }) {
     >
       <path d="M1.5 5L4 2.5 6.5 5" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
+  );
+}
+
+/**
+ * Icons for the eleven buttons the "App interface" setting affects. Same
+ * house style as the marks above: a 16px grid, a single stroke weight, round
+ * caps and joins, colour inherited from the button via `currentColor`.
+ */
+function ToolbarIcon({ children }: { children: ReactNode }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="15"
+      height="15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+
+function AddFoldersMark() {
+  return (
+    <ToolbarIcon>
+      <path d="M1.5 4.5h4.5l1.5 2h7v7h-13z" />
+      <path d="M11 8.3v4M9 10.3h4" />
+    </ToolbarIcon>
+  );
+}
+
+function AddFilesMark() {
+  return (
+    <ToolbarIcon>
+      <path d="M4 1.5h5l3 3v10h-8z" />
+      <path d="M8 8v4M6 10h4" />
+    </ToolbarIcon>
+  );
+}
+
+function RemoveMark() {
+  return (
+    <ToolbarIcon>
+      <circle cx="8" cy="8" r="6.2" />
+      <path d="M5.2 8h5.6" />
+    </ToolbarIcon>
+  );
+}
+
+function ClearMark() {
+  return (
+    <ToolbarIcon>
+      <path d="M3.5 5h9" />
+      <path d="M6.3 5V3.3h3.4V5" />
+      <path d="M4.8 5l.6 8h5.2l.6-8" />
+      <path d="M6.8 7v4M9.2 7v4" />
+    </ToolbarIcon>
+  );
+}
+
+function SaveMark() {
+  return (
+    <ToolbarIcon>
+      <path d="M2.5 2.5h8.3l2.2 2.2v8.8h-10.5z" />
+      <path d="M5 2.5v3.5h5.5v-3.5" />
+      <rect x="5.2" y="9.2" width="5" height="4" />
+    </ToolbarIcon>
+  );
+}
+
+function OpenMark() {
+  return (
+    <ToolbarIcon>
+      <path d="M1.5 4.5h4.5l1.5 2h7v2" />
+      <path d="M1.5 13.5l1.8-6h11.2l-1.8 6z" />
+    </ToolbarIcon>
+  );
+}
+
+function SortNameMark() {
+  return (
+    <ToolbarIcon>
+      <path d="M2.5 4.5h9M2.5 8h6.5M2.5 11.5h4" />
+    </ToolbarIcon>
+  );
+}
+
+function SortSizeMark() {
+  return (
+    <ToolbarIcon>
+      <path d="M3 13V9M7.5 13V6M12 13V3" />
+    </ToolbarIcon>
+  );
+}
+
+function CheckAllMark() {
+  return (
+    <ToolbarIcon>
+      <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+      <path d="M5 8.2l2.1 2.1L11.5 6" />
+    </ToolbarIcon>
+  );
+}
+
+function UncheckAllMark() {
+  return (
+    <ToolbarIcon>
+      <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+    </ToolbarIcon>
+  );
+}
+
+function CollapseAllMark() {
+  return (
+    <ToolbarIcon>
+      <path d="M3.5 10.5l4.5-4.5 4.5 4.5" />
+    </ToolbarIcon>
   );
 }

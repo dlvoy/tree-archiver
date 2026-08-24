@@ -26,6 +26,8 @@ export const en = {
   "toolbar.scanned": "{files} files · {bytes}",
   "toolbar.settings": "Settings",
   "toolbar.about": "About Tree Archiver",
+  "toolbar.planSaveTip": "Save plan",
+  "toolbar.planOpenTip": "Open plan",
 
   // ---------------------------------------------------------------- theme and language
   "theme.label": "Theme: {name}",
@@ -159,6 +161,17 @@ export const en = {
   "settings.appearance": "Appearance",
   "settings.theme": "Theme",
   "settings.language": "Language",
+  "settings.interface": "App interface",
+  "settings.interfaceIcons": "Icons only",
+  "settings.interfaceLabels": "Labels only",
+  "settings.interfaceIconsAndLabels": "Icons and Labels",
+  "settings.archiving": "Archiving",
+  "settings.archiveOrder": "File archiving order",
+  "settings.archiveOptimal": "Optimal",
+  "settings.archiveAsInPlan": "As in plan",
+  "settings.archiveAlphabetical": "Alphabetical",
+  "settings.archiveOrderHint":
+    "Optimal groups similar files together for better compression. As in plan uses today's tree order. Alphabetical sorts by name.",
   "settings.integration": "Integration",
   "settings.explorer": "Integrate with Explorer",
   "settings.explorerBody":

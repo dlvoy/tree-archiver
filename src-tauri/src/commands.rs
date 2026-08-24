@@ -12,7 +12,8 @@ use crate::model::check;
 use crate::model::sort::{sort_children, SortBy, SortDir, SortKey};
 use crate::naming::{self, ModeAvailability, NamingContext};
 use crate::plan::{
-    self, ArchivePlan, Compression, OutputOptions, PathMode, UnresolvedRule, PLAN_VERSION,
+    self, ArchivePlan, Compression, FileOrder, OutputOptions, PathMode, UnresolvedRule,
+    PLAN_VERSION,
 };
 use crate::roots::{rebuild, snapshot_checks, Sources};
 use crate::scan::{scan_path, ScanIssue};
@@ -36,6 +37,7 @@ pub struct Tree {
     pub sort: SortKey,
     pub issues: Vec<ScanIssue>,
     pub output: OutputOptions,
+    pub file_order: FileOrder,
 }
 
 impl Tree {
@@ -517,6 +519,7 @@ pub fn save_settings(app: AppHandle, state: State<'_, AppState>, settings: Setti
         let mut t = lock(&state)?;
         t.sort = settings.sort;
         t.output = settings.output;
+        t.file_order = settings.file_order;
     }
     settings::save(&app, &settings)
 }
@@ -881,8 +884,10 @@ pub fn start_archive(
         t.output = request.options;
         let sort = t.sort;
         let mode = request.options.path_mode;
+        let file_order = t.file_order;
         let ctx = NamingContext::from_sources(t.sources.iter());
-        archive::collect_entries(&t.arena, root, sort, mode, &ctx)
+        let entries = archive::collect_entries(&t.arena, root, sort, mode, &ctx);
+        crate::file_order::reorder(entries, file_order)
     };
 
     if entries.is_empty() {

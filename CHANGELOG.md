@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-08-24
+
+### Added
+
+- An **App interface** setting (Settings → Appearance) chooses how the
+  toolbar draws its Sources/Plan/Sort/Selection buttons: icons only
+  (the new default), labels only (today's look), or both. The four buttons
+  on the right — language, theme, settings, about — are always icon-only.
+- A **File archiving order** setting (Settings → Archiving) chooses how files
+  are ordered inside the archive, independent of the on-screen tree order:
+  **Optimal** (the new default) groups files by compressibility and by name so
+  similar and duplicate content lands close together, which gives gzip and 7z
+  more redundancy to find; **As in plan** keeps today's tree order; and
+  **Alphabetical** sorts by name.
+
+### Changed
+
+- The MIT licence text in the About dialog now opens in a wider dialog, so
+  longer lines wrap less.
+- The right-click context menu is disabled everywhere in the window. It only
+  ever offered browser leftovers like Reload, which would silently discard
+  the in-progress tree with no warning. Selecting text and Ctrl+C/Ctrl+V
+  copy-paste are unaffected.
+
 ## [1.3.0] - 2026-08-24
 
 ### Added
@@ -177,7 +201,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Archive entries are named relative to the root's parent, so extracting produces
   one top-level folder instead of scattering files into the current directory.
 
-[Unreleased]: https://github.com/dlvoy/tree-archiver/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/dlvoy/tree-archiver/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/dlvoy/tree-archiver/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/dlvoy/tree-archiver/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/dlvoy/tree-archiver/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/dlvoy/tree-archiver/compare/v1.1.0...v1.2.0

@@ -847,6 +847,10 @@ input {
   width: min(700px, 100%);
 }
 
+.modal--wider {
+  width: min(810px, 100%);
+}
+
 .modal__head {
   display: flex;
   align-items: center;

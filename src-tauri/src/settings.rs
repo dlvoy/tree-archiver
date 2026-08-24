@@ -6,7 +6,7 @@
 //! stop the app from opening.
 
 use crate::model::sort::SortKey;
-use crate::plan::OutputOptions;
+use crate::plan::{FileOrder, OutputOptions};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
@@ -40,6 +40,18 @@ pub enum LanguagePreference {
     De,
 }
 
+/// How the toolbar draws its buttons. Only the labelled groups (sources,
+/// plan, sort, selection) are affected — the icon-only buttons on the right
+/// (language, theme, settings, about) are icon-only regardless.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum InterfaceMode {
+    #[default]
+    Icons,
+    Labels,
+    IconsAndLabels,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -53,6 +65,12 @@ pub struct Settings {
     pub sort: SortKey,
     #[serde(default)]
     pub output: OutputOptions,
+    /// Absent in settings files written before this existed.
+    #[serde(default)]
+    pub interface_mode: InterfaceMode,
+    /// Absent in settings files written before this existed.
+    #[serde(default)]
+    pub file_order: FileOrder,
 }
 
 fn default_version() -> u32 {
@@ -67,6 +85,8 @@ impl Default for Settings {
             language: LanguagePreference::default(),
             sort: SortKey::default(),
             output: OutputOptions::default(),
+            interface_mode: InterfaceMode::default(),
+            file_order: FileOrder::default(),
         }
     }
 }
@@ -126,7 +146,7 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::model::sort::{SortBy, SortDir};
-    use crate::plan::{Compression, PathMode};
+    use crate::plan::{Compression, FileOrder, PathMode};
 
     #[test]
     fn defaults_are_the_documented_ones() {
@@ -140,6 +160,51 @@ mod tests {
         assert_eq!(s.output.gzip_level, 6);
         assert_eq!(s.output.sevenz_level, 6);
         assert!(!s.output.sevenz_solid);
+        assert_eq!(s.interface_mode, InterfaceMode::Icons);
+        assert_eq!(s.file_order, FileOrder::Optimal);
+    }
+
+    /// The interface-mode choice has to survive a save and a reload, the same
+    /// as every other preference.
+    #[test]
+    fn an_interface_mode_choice_round_trips() {
+        let s = Settings {
+            interface_mode: InterfaceMode::Labels,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains(r#""interfaceMode":"labels""#), "{json}");
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.interface_mode, InterfaceMode::Labels);
+    }
+
+    /// Same for the archiving-order choice.
+    #[test]
+    fn a_file_order_choice_round_trips() {
+        let s = Settings {
+            file_order: FileOrder::Alphabetical,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains(r#""fileOrder":"alphabetical""#), "{json}");
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.file_order, FileOrder::Alphabetical);
+    }
+
+    /// A settings file written before either setting existed (the v1.3.0
+    /// shape) carries neither key, and must still load rather than falling
+    /// back to every default wholesale.
+    #[test]
+    fn a_settings_file_from_before_these_two_settings_still_loads() {
+        let s: Settings = serde_json::from_str(
+            r#"{"version":1,"theme":"dark","language":"pl",
+                "sort":{"by":"size","dir":"desc"},
+                "output":{"compression":"gzip","gzipLevel":9,"pathMode":"fullPath"}}"#,
+        )
+        .unwrap();
+        assert_eq!(s.theme, ThemePreference::Dark);
+        assert_eq!(s.interface_mode, InterfaceMode::Icons);
+        assert_eq!(s.file_order, FileOrder::Optimal);
     }
 
     /// A 7z choice has to survive a save and a reload, including the two

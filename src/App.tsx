@@ -44,6 +44,8 @@ const FALLBACK: Settings = {
     sevenzLevel: 6,
     sevenzSolid: false,
   },
+  interfaceMode: "icons",
+  fileOrder: "optimal",
 };
 
 const NEXT_THEME: Record<ThemePreference, ThemePreference> = {
@@ -343,6 +345,7 @@ export default function App() {
           theme={settings.theme}
           language={settings.language}
           resolvedLanguage={lang}
+          interfaceMode={settings.interfaceMode}
           onAddFolders={pickFolders}
           onAddFiles={pickFiles}
           onRemove={removeSelected}
@@ -392,8 +395,12 @@ export default function App() {
           <SettingsDialog
             theme={settings.theme}
             language={settings.language}
+            interfaceMode={settings.interfaceMode}
+            fileOrder={settings.fileOrder}
             onThemeChange={(theme) => patchSettings({ theme })}
             onLanguageChange={(language) => patchSettings({ language })}
+            onInterfaceModeChange={(interfaceMode) => patchSettings({ interfaceMode })}
+            onFileOrderChange={(fileOrder) => patchSettings({ fileOrder })}
             onClose={() => setShowSettings(false)}
           />
         )}
