@@ -625,6 +625,11 @@ input {
   border-color: var(--accent-line);
 }
 
+.row__tag--auto {
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
+
 /* The size column and its proportion meter. */
 .row__size {
   width: var(--size-col);
@@ -1309,6 +1314,30 @@ input {
 .setting__name {
   font-size: 12.5px;
   color: var(--ink);
+}
+
+.setting__name--strong {
+  font-weight: 600;
+}
+
+/* A row picked for Add/Delete purposes, independent of its own checkbox. */
+.setting--selected {
+  background: var(--accent-soft);
+}
+
+/* A short, capped preview of a ruleset's own pattern lines. */
+.ruleset__rules {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .setting__control {

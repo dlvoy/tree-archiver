@@ -24,6 +24,7 @@ export const de: Record<keyof typeof en, Phrase> = {
   "toolbar.checkAll": "Alle auswählen",
   "toolbar.uncheckAll": "Auswahl aufheben",
   "toolbar.collapseAll": "Alle einklappen",
+  "toolbar.autoIgnore": "AutoIgnore",
   "toolbar.reading": "Wird gelesen…",
   "toolbar.stop": "Anhalten",
   "toolbar.scanned": "{files} Dateien · {bytes}",
@@ -50,6 +51,7 @@ export const de: Record<keyof typeof en, Phrase> = {
   "tree.collapse": "Einklappen",
   "tree.passThrough": "Durchgang",
   "tree.reading": "wird gelesen…",
+  "tree.autoIgnored": "auto",
   "tree.dropHere": "Loslassen, um diese Pfade vorzumerken",
 
   // ---------------------------------------------------------------- status bar
@@ -197,6 +199,24 @@ export const de: Record<keyof typeof en, Phrase> = {
     "Dies löscht die beiden Registrierungsschlüssel, die „{verb}“ im Kontextmenü anzeigen. Sonst wird nichts verändert, und Sie können den Eintrag jederzeit wieder hinzufügen.",
   "settings.confirmRemoveGo": "Eintrag entfernen",
   "settings.confirmCancel": "Abbrechen",
+
+  // ---------------------------------------------------------------- autoignore-dialog
+  "autoignore.title": "AutoIgnore",
+  "autoignore.lede":
+    "Gleicht ein Regelwerk mit allem Hinzugefügten ab und hebt die Auswahl auf, was passt. Ausgeschlossene Dateien werden mit auto markiert, damit sie sich von einer manuellen Abwahl unterscheiden.",
+  "autoignore.builtin": "Integriert",
+  "autoignore.custom": "Eigene",
+  "autoignore.add": "Hinzufügen…",
+  "autoignore.delete": "Löschen",
+  "autoignore.caseInsensitive": "Groß-/Kleinschreibung ignorieren",
+  "autoignore.apply": "Anwenden",
+  "autoignore.applying": "Wird angewendet…",
+  "autoignore.importPickTitle": "Regeldatei zum Importieren auswählen",
+  "autoignore.importTitle": "Regelwerk benennen",
+  "autoignore.importName": "Name",
+  "autoignore.importCancel": "Abbrechen",
+  "autoignore.importGo": "Importieren",
+  "autoignore.importing": "Wird importiert…",
 
   // ---------------------------------------------------------------- dialogs and toasts
   "app.issuesTitle": "Pfade, die nicht gelesen werden konnten",

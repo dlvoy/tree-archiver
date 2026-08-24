@@ -39,6 +39,9 @@ export interface NodeView {
   selFiles: number;
   totalFiles: number;
   path: string | null;
+  /** The ruleset that auto-excluded this node, if any — `null` for
+   * everything else, including a plain manual uncheck. */
+  autoIgnore: string | null;
 }
 
 export interface Summary {
@@ -240,6 +243,35 @@ export const getSettings = () => invoke<Settings>("get_settings");
 
 export const saveSettings = (settings: Settings) =>
   invoke<void>("save_settings", { settings });
+
+/** One row of the AutoIgnore dialog's list — a built-in preset or a
+ * user-imported ruleset, with the tick state already resolved. */
+export interface IgnoreRuleset {
+  id: string;
+  name: string;
+  description: string;
+  rules: string[];
+  builtin: boolean;
+  checked: boolean;
+}
+
+/** The whole AutoIgnore dialog's state in one fetch. */
+export interface AutoIgnoreCatalog {
+  rulesets: IgnoreRuleset[];
+  caseInsensitive: boolean;
+}
+
+export const listIgnoreRulesets = () =>
+  invoke<AutoIgnoreCatalog>("list_ignore_rulesets");
+
+export const applyIgnoreRulesets = (checkedIds: string[], caseInsensitive: boolean) =>
+  invoke<TreeUpdate>("apply_ignore_rulesets", { checkedIds, caseInsensitive });
+
+export const importIgnoreRuleset = (name: string, path: string) =>
+  invoke<IgnoreRuleset>("import_ignore_ruleset", { name, path });
+
+export const deleteIgnoreRuleset = (id: string) =>
+  invoke<void>("delete_ignore_ruleset", { id });
 
 export const suggestedOutputName = () =>
   invoke<string>("suggested_output_name");

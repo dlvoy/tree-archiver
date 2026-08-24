@@ -98,6 +98,11 @@ export const TreeRow = memo(function TreeRow({
 
       {node.spine && <span className="row__tag">{t("tree.passThrough")}</span>}
       {loading && <span className="row__tag row__tag--live">{t("tree.reading")}</span>}
+      {node.autoIgnore && (
+        <span className="row__tag row__tag--auto" title={node.autoIgnore}>
+          {t("tree.autoIgnored")}
+        </span>
+      )}
 
       <span className="row__size">
         <span className="row__figures">

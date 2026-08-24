@@ -48,6 +48,7 @@ interface TreeStore {
   collapseAll: () => void;
   toggleCheck: (id: NodeId) => Promise<void>;
   checkAll: (checked: boolean) => Promise<void>;
+  applyAutoIgnore: (checkedIds: string[], caseInsensitive: boolean) => Promise<void>;
   select: (id: NodeId | null) => void;
   changeSort: (by: SortBy, dir: SortDir) => Promise<void>;
   adoptSort: (sort: SortKey) => void;
@@ -292,6 +293,34 @@ export const useTree = create<TreeStore>((set, get) => ({
    */
   checkAll: async (checked) => {
     const update = await api.setAllChecked(checked);
+    const open = [...get().children.keys()];
+    const fetched = await Promise.all(
+      open.map(async (id) => [id, await api.getChildren(id)] as const),
+    );
+
+    set((s) => {
+      const nodes = new Map(s.nodes);
+      const children = new Map(s.children);
+      const parents = new Map(s.parents);
+      if (update.root) nodes.set(update.root.id, update.root);
+      for (const [id, kids] of fetched) {
+        for (const k of kids) {
+          nodes.set(k.id, k);
+          parents.set(k.id, id);
+        }
+        children.set(
+          id,
+          kids.map((k) => k.id),
+        );
+      }
+      return { nodes, children, parents, root: update.root, summary: update.summary };
+    });
+  },
+
+  /** Same reach as `checkAll`: node ids stay valid, so only the branches
+   * already on screen need re-reading. */
+  applyAutoIgnore: async (checkedIds, caseInsensitive) => {
+    const update = await api.applyIgnoreRulesets(checkedIds, caseInsensitive);
     const open = [...get().children.keys()];
     const fetched = await Promise.all(
       open.map(async (id) => [id, await api.getChildren(id)] as const),

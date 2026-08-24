@@ -23,6 +23,7 @@ import { StatusBar } from "./components/StatusBar";
 import { ArchiveDialog, Modal } from "./components/ArchiveDialog";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { AboutDialog } from "./components/AboutDialog";
+import { AutoIgnoreDialog } from "./components/AutoIgnoreDialog";
 import { ProgressView } from "./components/ProgressView";
 import * as fmt from "./lib/format";
 
@@ -95,6 +96,7 @@ export default function App() {
   const [showIssues, setShowIssues] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+  const [showAutoIgnore, setShowAutoIgnore] = useState(false);
   const [settings, setSettings] = useState<Settings>(() => ({
     ...FALLBACK,
     theme: cached<ThemePreference>("theme", ["system", "light", "dark"], "system"),
@@ -352,6 +354,7 @@ export default function App() {
           onClear={clearAll}
           onCollapseAll={store.collapseAll}
           onCheckAll={(c) => void checkAll(c)}
+          onOpenAutoIgnore={() => setShowAutoIgnore(true)}
           onSort={(by, dir) => void changeSort(by, dir)}
           onSavePlan={savePlan}
           onLoadPlan={loadPlan}
@@ -406,6 +409,10 @@ export default function App() {
         )}
 
         {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}
+
+        {showAutoIgnore && (
+          <AutoIgnoreDialog onClose={() => setShowAutoIgnore(false)} />
+        )}
 
         {stage.at === "configure" && (
           <ArchiveDialog

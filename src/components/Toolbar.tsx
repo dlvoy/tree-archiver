@@ -23,6 +23,7 @@ export function Toolbar({
   onClear,
   onCollapseAll,
   onCheckAll,
+  onOpenAutoIgnore,
   onSort,
   onSavePlan,
   onLoadPlan,
@@ -50,6 +51,7 @@ export function Toolbar({
   onClear: () => void;
   onCollapseAll: () => void;
   onCheckAll: (checked: boolean) => void;
+  onOpenAutoIgnore: () => void;
   onSort: (by: SortBy, dir: SortDir) => void;
   onSavePlan: () => void;
   onLoadPlan: () => void;
@@ -274,6 +276,17 @@ export function Toolbar({
             {showIcons && <CollapseAllMark />}
             {label("toolbar.collapseAll")}
           </button>
+          <button
+            type="button"
+            className="btn btn--quiet"
+            onClick={onOpenAutoIgnore}
+            disabled={!hasTree}
+            title={t("toolbar.autoIgnore")}
+            aria-label={t("toolbar.autoIgnore")}
+          >
+            {showIcons && <AutoIgnoreMark />}
+            {label("toolbar.autoIgnore")}
+          </button>
         </div>
 
         <div className="bar__spacer" />
@@ -361,7 +374,7 @@ function Caret({ dir }: { dir: SortDir }) {
 }
 
 /**
- * Icons for the eleven buttons the "App interface" setting affects. Same
+ * Icons for the twelve buttons the "App interface" setting affects. Same
  * house style as the marks above: a 16px grid, a single stroke weight, round
  * caps and joins, colour inherited from the button via `currentColor`.
  */
@@ -477,6 +490,15 @@ function CollapseAllMark() {
   return (
     <ToolbarIcon>
       <path d="M3.5 10.5l4.5-4.5 4.5 4.5" />
+    </ToolbarIcon>
+  );
+}
+
+/** A filter funnel — presets sieve the tree down to what's worth keeping. */
+function AutoIgnoreMark() {
+  return (
+    <ToolbarIcon>
+      <path d="M2.5 3h11l-4.25 5.5v4.5l-2.5 1.25v-5.75z" />
     </ToolbarIcon>
   );
 }

@@ -25,6 +25,7 @@ export const pl: Record<keyof typeof en, Phrase> = {
   "toolbar.checkAll": "Zaznacz wszystko",
   "toolbar.uncheckAll": "Odznacz wszystko",
   "toolbar.collapseAll": "Zwiń wszystko",
+  "toolbar.autoIgnore": "Autopomijanie",
   "toolbar.reading": "Odczyt…",
   "toolbar.stop": "Zatrzymaj",
   "toolbar.scanned": "{files} plików · {bytes}",
@@ -51,6 +52,7 @@ export const pl: Record<keyof typeof en, Phrase> = {
   "tree.collapse": "Zwiń",
   "tree.passThrough": "przelotowy",
   "tree.reading": "odczyt…",
+  "tree.autoIgnored": "auto",
   "tree.dropHere": "Puść, aby dodać te ścieżki",
 
   // ---------------------------------------------------------------- status bar
@@ -202,6 +204,24 @@ export const pl: Record<keyof typeof en, Phrase> = {
     "Usunie to dwa klucze rejestru odpowiadające za „{verb}” w menu podręcznym. Nic więcej nie zostanie zmienione, a pozycję można dodać ponownie w dowolnej chwili.",
   "settings.confirmRemoveGo": "Usuń pozycję",
   "settings.confirmCancel": "Anuluj",
+
+  // ---------------------------------------------------------------- okno autopomijania
+  "autoignore.title": "Autopomijanie",
+  "autoignore.lede":
+    "Dopasuj zestaw reguł do wszystkiego, co dodano, i odznacz to, co znajdzie. Pominięte pliki są oznaczone jako auto, więc widać, że nie zostały odznaczone ręcznie.",
+  "autoignore.builtin": "Wbudowany",
+  "autoignore.custom": "Własny",
+  "autoignore.add": "Dodaj…",
+  "autoignore.delete": "Usuń",
+  "autoignore.caseInsensitive": "Bez rozróżniania wielkości liter",
+  "autoignore.apply": "Zastosuj",
+  "autoignore.applying": "Stosowanie…",
+  "autoignore.importPickTitle": "Wybierz plik reguł do zaimportowania",
+  "autoignore.importTitle": "Nazwij ten zestaw reguł",
+  "autoignore.importName": "Nazwa",
+  "autoignore.importCancel": "Anuluj",
+  "autoignore.importGo": "Importuj",
+  "autoignore.importing": "Importowanie…",
 
   // ---------------------------------------------------------------- dialogs and toasts
   "app.issuesTitle": "Ścieżki, których nie udało się odczytać",

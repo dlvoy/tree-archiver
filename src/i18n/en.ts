@@ -21,6 +21,7 @@ export const en = {
   "toolbar.checkAll": "Check all",
   "toolbar.uncheckAll": "Uncheck all",
   "toolbar.collapseAll": "Collapse all",
+  "toolbar.autoIgnore": "AutoIgnore",
   "toolbar.reading": "Reading…",
   "toolbar.stop": "Stop",
   "toolbar.scanned": "{files} files · {bytes}",
@@ -47,6 +48,7 @@ export const en = {
   "tree.collapse": "Collapse",
   "tree.passThrough": "pass-through",
   "tree.reading": "reading…",
+  "tree.autoIgnored": "auto",
   "tree.dropHere": "Release to stage these paths",
 
   // ---------------------------------------------------------------- status bar
@@ -191,6 +193,24 @@ export const en = {
     "This deletes the two registry keys that put “{verb}” in the right-click menu. Nothing else is touched, and you can add it back at any time.",
   "settings.confirmRemoveGo": "Remove entry",
   "settings.confirmCancel": "Cancel",
+
+  // ---------------------------------------------------------------- autoignore dialog
+  "autoignore.title": "AutoIgnore",
+  "autoignore.lede":
+    "Match a ruleset against everything staged, and uncheck what it finds. Excluded files are tagged auto so you can tell them apart from a manual uncheck.",
+  "autoignore.builtin": "Built-in",
+  "autoignore.custom": "Custom",
+  "autoignore.add": "Add…",
+  "autoignore.delete": "Delete",
+  "autoignore.caseInsensitive": "Case Insensitive",
+  "autoignore.apply": "Apply",
+  "autoignore.applying": "Applying…",
+  "autoignore.importPickTitle": "Pick a rules file to import",
+  "autoignore.importTitle": "Name this ruleset",
+  "autoignore.importName": "Name",
+  "autoignore.importCancel": "Cancel",
+  "autoignore.importGo": "Import",
+  "autoignore.importing": "Importing…",
 
   // ---------------------------------------------------------------- dialogs and toasts
   "app.issuesTitle": "Paths that could not be read",

@@ -18,6 +18,7 @@ use crate::plan::{
 use crate::roots::{rebuild, snapshot_checks, Sources};
 use crate::scan::{scan_path, ScanIssue};
 use crate::explorer;
+use crate::ignore_rules;
 use crate::settings::{self, Settings};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -38,6 +39,14 @@ pub struct Tree {
     pub issues: Vec<ScanIssue>,
     pub output: OutputOptions,
     pub file_order: FileOrder,
+    /// Path → the ruleset id that auto-excluded it. Path-keyed rather than a
+    /// `Node` field so it survives `reroot` for free — node ids are
+    /// reassigned on every rebuild, but paths are not.
+    pub auto_ignored: HashMap<PathBuf, String>,
+    /// Paths a manual re-check has rescued from `auto_ignored`. Kept so a
+    /// later Apply — of a ruleset unrelated to this file entirely — doesn't
+    /// silently re-exclude it during its resync pass. See `ignore_rules::apply`.
+    pub auto_ignore_overrides: HashSet<PathBuf>,
 }
 
 impl Tree {
@@ -163,9 +172,12 @@ pub struct NodeView {
     pub sel_files: u64,
     pub total_files: u64,
     pub path: Option<String>,
+    /// The ruleset that auto-excluded this node, if any — `None` for
+    /// everything else, including a plain manual uncheck.
+    pub auto_ignore: Option<String>,
 }
 
-fn view(arena: &Arena, id: NodeId) -> NodeView {
+fn view(arena: &Arena, auto: &HashMap<PathBuf, String>, id: NodeId) -> NodeView {
     let n = arena.node(id);
     let (kind, spine) = match n.kind {
         NodeKind::Dir { scanned } => ("dir", !scanned),
@@ -186,6 +198,7 @@ fn view(arena: &Arena, id: NodeId) -> NodeView {
         sel_files: n.sel_files,
         total_files: n.total_files,
         path: n.path.as_deref().map(fsutil::display_path),
+        auto_ignore: n.path.as_ref().and_then(|p| auto.get(p)).cloned(),
     }
 }
 
@@ -230,7 +243,7 @@ pub struct TreeUpdate {
 
 fn tree_update(t: &Tree) -> TreeUpdate {
     TreeUpdate {
-        root: t.root.map(|r| view(&t.arena, r)),
+        root: t.root.map(|r| view(&t.arena, &t.auto_ignored, r)),
         summary: summary(t),
         issues: t.issues.clone(),
         sort: t.sort,
@@ -369,7 +382,7 @@ pub fn get_children(state: State<'_, AppState>, id: NodeId) -> Cmd<Vec<NodeView>
     }
     let mut kids = t.arena.children(id).to_vec();
     sort_children(&t.arena, &mut kids, t.sort);
-    Ok(kids.into_iter().map(|c| view(&t.arena, c)).collect())
+    Ok(kids.into_iter().map(|c| view(&t.arena, &t.auto_ignored, c)).collect())
 }
 
 #[tauri::command]
@@ -385,9 +398,21 @@ pub fn set_checked(state: State<'_, AppState>, id: NodeId, checked: bool) -> Cmd
         return Err("that row no longer exists".into());
     }
     let ancestors = check::set_checked(&mut t.arena, id, checked);
+    // A manual check always wins: it clears whatever auto-ignore mark was on
+    // the whole subtree, the same reach `set_checked` itself just had, and is
+    // remembered so a later, unrelated Apply doesn't quietly undo it.
+    if checked {
+        for d in t.arena.descendants(id) {
+            if let Some(p) = t.arena.node(d).path.clone() {
+                if t.auto_ignored.remove(&p).is_some() {
+                    t.auto_ignore_overrides.insert(p);
+                }
+            }
+        }
+    }
     Ok(CheckUpdate {
-        node: view(&t.arena, id),
-        ancestors: ancestors.into_iter().map(|a| view(&t.arena, a)).collect(),
+        node: view(&t.arena, &t.auto_ignored, id),
+        ancestors: ancestors.into_iter().map(|a| view(&t.arena, &t.auto_ignored, a)).collect(),
         summary: summary(&t),
     })
 }
@@ -493,7 +518,7 @@ pub fn restore_view(
             Some(Branch {
                 key,
                 id,
-                children: kids.into_iter().map(|c| view(&t.arena, c)).collect(),
+                children: kids.into_iter().map(|c| view(&t.arena, &t.auto_ignored, c)).collect(),
             })
         })
         .collect();
@@ -521,6 +546,197 @@ pub fn save_settings(app: AppHandle, state: State<'_, AppState>, settings: Setti
         t.output = settings.output;
         t.file_order = settings.file_order;
     }
+    settings::save(&app, &settings)
+}
+
+// ---------------------------------------------------------------- autoignore
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IgnoreRulesetView {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub rules: Vec<String>,
+    /// Built-ins can't be deleted.
+    pub builtin: bool,
+    pub checked: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoIgnoreCatalog {
+    pub rulesets: Vec<IgnoreRulesetView>,
+    pub case_insensitive: bool,
+}
+
+/// Whether `r` is ticked: an explicit override if the user has ever touched
+/// this id, else the ruleset's own `default_checked`. A ruleset the saved
+/// settings have never heard of at all — including a built-in shipped after
+/// the user's last save — falls straight through to its own default.
+fn is_ruleset_checked(r: &ignore_rules::IgnoreRuleset, settings: &Settings) -> bool {
+    if settings.ignore_rulesets_unchecked.contains(&r.id) {
+        false
+    } else if settings.ignore_rulesets_checked.contains(&r.id) {
+        true
+    } else {
+        r.default_checked
+    }
+}
+
+/// Every built-in preset plus whatever the user has imported, each carrying
+/// whether it is currently ticked.
+fn ignore_ruleset_catalog(settings: &Settings) -> Vec<IgnoreRulesetView> {
+    let builtin = ignore_rules::builtins().into_iter().map(|r| (r, true));
+    let custom = settings.ignore_rulesets.iter().cloned().map(|r| (r, false));
+    builtin
+        .chain(custom)
+        .map(|(r, is_builtin)| IgnoreRulesetView {
+            checked: is_ruleset_checked(&r, settings),
+            id: r.id,
+            name: r.name,
+            description: r.description,
+            rules: r.rules,
+            builtin: is_builtin,
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub fn list_ignore_rulesets(app: AppHandle) -> AutoIgnoreCatalog {
+    let settings = settings::load(&app);
+    AutoIgnoreCatalog {
+        rulesets: ignore_ruleset_catalog(&settings),
+        case_insensitive: settings.ignore_case_insensitive,
+    }
+}
+
+/// Persists which rulesets are ticked and the case-sensitivity choice, then
+/// resyncs the tree to match: every path this dialog auto-excluded last time
+/// is re-checked first, so unticking a ruleset (or flipping case
+/// sensitivity) and Applying again brings its matches back — without
+/// touching anything the user excluded by hand, which was never in
+/// `auto_ignored` to begin with.
+#[tauri::command]
+pub fn apply_ignore_rulesets(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    checked_ids: Vec<String>,
+    case_insensitive: bool,
+) -> Cmd<TreeUpdate> {
+    let mut settings = settings::load(&app);
+    let builtins = ignore_rules::builtins();
+    let all: Vec<ignore_rules::IgnoreRuleset> = builtins
+        .iter()
+        .cloned()
+        .chain(settings.ignore_rulesets.iter().cloned())
+        .collect();
+
+    // Only a deviation from the ruleset's own default is worth remembering —
+    // see `Settings::ignore_rulesets_unchecked` for why this needs two lists
+    // rather than one.
+    let mut unchecked = Vec::new();
+    let mut checked_overrides = Vec::new();
+    for r in &all {
+        let now_checked = checked_ids.contains(&r.id);
+        if now_checked != r.default_checked {
+            if now_checked {
+                checked_overrides.push(r.id.clone());
+            } else {
+                unchecked.push(r.id.clone());
+            }
+        }
+    }
+    settings.ignore_rulesets_unchecked = unchecked;
+    settings.ignore_rulesets_checked = checked_overrides;
+    settings.ignore_case_insensitive = case_insensitive;
+    settings::save(&app, &settings)?;
+
+    let mut t = lock(&state)?;
+
+    for (path, _) in std::mem::take(&mut t.auto_ignored) {
+        if let Some(id) = t.arena.find_by_path(&path) {
+            check::set_checked(&mut t.arena, id, true);
+        }
+    }
+
+    let owned: Vec<ignore_rules::IgnoreRuleset> = builtins
+        .into_iter()
+        .chain(settings.ignore_rulesets.iter().cloned())
+        .filter(|r| checked_ids.contains(&r.id))
+        .collect();
+    let checked: Vec<&ignore_rules::IgnoreRuleset> = owned.iter().collect();
+
+    let sources: Vec<crate::scan::Source> = t.sources.iter().cloned().collect();
+    // `t` is a mutex guard, so `&mut t.arena` and `&t.auto_ignore_overrides`
+    // can't be borrowed in the same call even though the fields are disjoint;
+    // the overrides set is small and Apply is not a hot path.
+    let overrides = t.auto_ignore_overrides.clone();
+    t.auto_ignored =
+        ignore_rules::apply(&mut t.arena, &sources, &checked, &overrides, case_insensitive);
+
+    Ok(tree_update(&t))
+}
+
+fn new_custom_ruleset_id() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("custom:{nanos}")
+}
+
+/// Reads and validates a rules file, then stores it as a new custom ruleset.
+/// One round trip: the import dialog is just a name field, so there is no
+/// separate preview step to fail at.
+#[tauri::command]
+pub fn import_ignore_ruleset(app: AppHandle, name: String, path: String) -> Cmd<IgnoreRulesetView> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("give the ruleset a name".into());
+    }
+
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| format!("could not read the file: {e}"))?;
+    let rules = ignore_rules::validate(&text)?;
+
+    let mut settings = settings::load(&app);
+    let taken = ignore_rules::builtins().into_iter().any(|r| r.name.eq_ignore_ascii_case(&name))
+        || settings.ignore_rulesets.iter().any(|r| r.name.eq_ignore_ascii_case(&name));
+    if taken {
+        return Err(format!("a ruleset named \"{name}\" already exists"));
+    }
+
+    let id = new_custom_ruleset_id();
+    settings.ignore_rulesets.push(ignore_rules::IgnoreRuleset {
+        id: id.clone(),
+        name,
+        description: format!("Imported from {}", fsutil::display_path(Path::new(&path))),
+        rules,
+        // A ruleset the user just deliberately imported starts ticked.
+        default_checked: true,
+    });
+    settings::save(&app, &settings)?;
+
+    ignore_ruleset_catalog(&settings)
+        .into_iter()
+        .find(|r| r.id == id)
+        .ok_or_else(|| "internal error: the ruleset was not saved".to_string())
+}
+
+#[tauri::command]
+pub fn delete_ignore_ruleset(app: AppHandle, id: String) -> Cmd<()> {
+    if ignore_rules::is_builtin_id(&id) {
+        return Err("built-in rulesets can't be deleted".into());
+    }
+    let mut settings = settings::load(&app);
+    let before = settings.ignore_rulesets.len();
+    settings.ignore_rulesets.retain(|r| r.id != id);
+    if settings.ignore_rulesets.len() == before {
+        return Err("that ruleset does not exist".into());
+    }
+    settings.ignore_rulesets_unchecked.retain(|u| u != &id);
+    settings.ignore_rulesets_checked.retain(|u| u != &id);
     settings::save(&app, &settings)
 }
 
@@ -755,6 +971,12 @@ pub async fn load_plan(
     t.output = loaded.output;
 
     t.reroot(&Default::default());
+
+    // The plan's own rules now own every exclusion; a mark left over from
+    // an earlier AutoIgnore run would otherwise tag a file the plan itself
+    // excluded as if the ruleset engine had just done it.
+    t.auto_ignored.clear();
+    t.auto_ignore_overrides.clear();
 
     let unresolved = match t.root {
         Some(root) => {
@@ -1056,8 +1278,47 @@ pub fn app_info() -> AppInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::{app_info, paths_from_args, Progress, ProgressThrottle};
+    use super::{app_info, is_ruleset_checked, paths_from_args, Progress, ProgressThrottle};
+    use crate::ignore_rules::IgnoreRuleset;
+    use crate::settings::Settings;
     use std::time::Duration;
+
+    fn ruleset(id: &str, default_checked: bool) -> IgnoreRuleset {
+        IgnoreRuleset {
+            id: id.into(),
+            name: id.into(),
+            description: String::new(),
+            rules: vec!["*.tmp".into()],
+            default_checked,
+        }
+    }
+
+    #[test]
+    fn an_untouched_ruleset_falls_back_to_its_own_default() {
+        let on = ruleset("a", true);
+        let off = ruleset("b", false);
+        let settings = Settings::default();
+        assert!(is_ruleset_checked(&on, &settings));
+        assert!(!is_ruleset_checked(&off, &settings));
+    }
+
+    #[test]
+    fn an_explicit_uncheck_overrides_a_default_of_checked() {
+        let r = ruleset("a", true);
+        let settings = Settings { ignore_rulesets_unchecked: vec!["a".into()], ..Settings::default() };
+        assert!(!is_ruleset_checked(&r, &settings));
+    }
+
+    /// The case a single "checked ids" list could never express: a ruleset
+    /// that defaults to *off* but the user has explicitly turned *on*, and
+    /// that choice has to survive being read back later — not silently fall
+    /// back to the default the moment it isn't in an "unchecked" list.
+    #[test]
+    fn an_explicit_check_overrides_a_default_of_unchecked() {
+        let r = ruleset("a", false);
+        let settings = Settings { ignore_rulesets_checked: vec!["a".into()], ..Settings::default() };
+        assert!(is_ruleset_checked(&r, &settings));
+    }
 
     fn progress(files_done: u64, bytes_done: u64) -> Progress {
         Progress {

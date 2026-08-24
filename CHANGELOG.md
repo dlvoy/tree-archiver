@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-08-24
+
+### Added
+
+- **AutoIgnore**, a new button in the Selection group that matches a catalog
+  of `.gitignore`-style rulesets against the staged tree and unchecks
+  whatever they match. Excluded items are tagged **auto** on the row, so
+  it stays clear what the tool excluded versus what was unchecked by hand.
+  Thirteen built-in presets cover common cases — backups, caches,
+  dev-dependency folders, precompiled output, logs, OS and editor metadata,
+  crash dumps, and generated build/coverage output among them.
+- Custom rulesets can be imported from any file written in `.gitignore`
+  syntax, named, and deleted again; built-in presets cannot be deleted.
+  Re-checking an auto-excluded item by hand clears its tag for good, even
+  across a later Apply of an unrelated ruleset.
+- A **Case Insensitive** option in the AutoIgnore dialog, on by default and
+  remembered like the ruleset selection, makes patterns like `*cache*` match
+  regardless of case.
+
 ## [1.4.0] - 2026-08-24
 
 ### Added
@@ -201,7 +220,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Archive entries are named relative to the root's parent, so extracting produces
   one top-level folder instead of scattering files into the current directory.
 
-[Unreleased]: https://github.com/dlvoy/tree-archiver/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/dlvoy/tree-archiver/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/dlvoy/tree-archiver/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/dlvoy/tree-archiver/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/dlvoy/tree-archiver/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/dlvoy/tree-archiver/compare/v1.2.0...v1.2.1

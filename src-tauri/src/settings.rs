@@ -71,10 +71,42 @@ pub struct Settings {
     /// Absent in settings files written before this existed.
     #[serde(default)]
     pub file_order: FileOrder,
+    /// User-imported ignore rulesets. The built-in presets are code-defined
+    /// and never stored here, so shipping a new or refined one needs no
+    /// migration.
+    #[serde(default)]
+    pub ignore_rulesets: Vec<crate::ignore_rules::IgnoreRuleset>,
+    /// Ids the user has explicitly *unticked*, overriding a ruleset whose own
+    /// `default_checked` is `true`.
+    ///
+    /// Deviations from default are tracked in both directions — this list and
+    /// `ignore_rulesets_checked` below — rather than one "the checked set"
+    /// list, because a single list can't tell "never touched, falls back to
+    /// this ruleset's own default" apart from "explicitly set to the value
+    /// that happens to match the default". An empty pair of lists is exactly
+    /// the fresh-install state, and a built-in shipped after the user's last
+    /// save reads as its own `default_checked` rather than needing a
+    /// migration.
+    #[serde(default)]
+    pub ignore_rulesets_unchecked: Vec<String>,
+    /// Ids the user has explicitly *ticked*, overriding a ruleset whose own
+    /// `default_checked` is `false`. See `ignore_rulesets_unchecked`.
+    #[serde(default)]
+    pub ignore_rulesets_checked: Vec<String>,
+    /// Whether AutoIgnore's patterns match regardless of case, so `*.bak`
+    /// also catches `SOMETHING.BAK`. On by default — most filesystems this
+    /// app runs on are themselves case-insensitive, so a case-sensitive
+    /// miss would be the surprising outcome, not the safe one.
+    #[serde(default = "default_true")]
+    pub ignore_case_insensitive: bool,
 }
 
 fn default_version() -> u32 {
     SETTINGS_VERSION
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -87,6 +119,10 @@ impl Default for Settings {
             output: OutputOptions::default(),
             interface_mode: InterfaceMode::default(),
             file_order: FileOrder::default(),
+            ignore_rulesets: Vec::new(),
+            ignore_rulesets_unchecked: Vec::new(),
+            ignore_rulesets_checked: Vec::new(),
+            ignore_case_insensitive: true,
         }
     }
 }
@@ -162,6 +198,76 @@ mod tests {
         assert!(!s.output.sevenz_solid);
         assert_eq!(s.interface_mode, InterfaceMode::Icons);
         assert_eq!(s.file_order, FileOrder::Optimal);
+        assert!(s.ignore_rulesets.is_empty());
+        assert!(s.ignore_rulesets_unchecked.is_empty());
+        assert!(s.ignore_rulesets_checked.is_empty());
+        assert!(s.ignore_case_insensitive);
+    }
+
+    /// Turning case-insensitive matching off has to survive a save and a
+    /// reload, same as every other preference.
+    #[test]
+    fn case_insensitive_choice_round_trips() {
+        let s = Settings {
+            ignore_case_insensitive: false,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains(r#""ignoreCaseInsensitive":false"#), "{json}");
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert!(!back.ignore_case_insensitive);
+    }
+
+    /// A settings file from before this setting existed carries no key, and
+    /// must load as "on" — the documented default — not "off".
+    #[test]
+    fn a_settings_file_from_before_case_insensitive_still_loads_as_on() {
+        let s: Settings = serde_json::from_str(r#"{"version":1}"#).unwrap();
+        assert!(s.ignore_case_insensitive);
+    }
+
+    /// A user-imported ruleset, and an unticked built-in, both have to
+    /// survive a save and a reload.
+    #[test]
+    fn ignore_rulesets_round_trip() {
+        let s = Settings {
+            ignore_rulesets: vec![crate::ignore_rules::IgnoreRuleset {
+                id: "custom:mine".into(),
+                name: "Mine".into(),
+                description: "just for me".into(),
+                rules: vec!["*.tmp".into()],
+                default_checked: true,
+            }],
+            ignore_rulesets_unchecked: vec!["builtin:logs".into()],
+            // A hypothetical default-off ruleset the user turned on by hand.
+            ignore_rulesets_checked: vec!["builtin:precompiled".into()],
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains(r#""id":"custom:mine""#), "{json}");
+        assert!(json.contains(r#""ignoreRulesetsUnchecked":["builtin:logs"]"#), "{json}");
+        assert!(json.contains(r#""ignoreRulesetsChecked":["builtin:precompiled"]"#), "{json}");
+
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.ignore_rulesets, s.ignore_rulesets);
+        assert_eq!(back.ignore_rulesets_unchecked, vec!["builtin:logs".to_string()]);
+        assert_eq!(back.ignore_rulesets_checked, vec!["builtin:precompiled".to_string()]);
+    }
+
+    /// A settings file written before AutoIgnore existed carries neither
+    /// key, and an empty unchecked-list must mean "everything checked" —
+    /// not "load failed, fall back to defaults".
+    #[test]
+    fn a_settings_file_from_before_autoignore_still_loads_with_everything_checked() {
+        let s: Settings = serde_json::from_str(
+            r#"{"version":1,"theme":"dark","sort":{"by":"name","dir":"asc"},
+                "output":{"compression":"none","gzipLevel":6}}"#,
+        )
+        .unwrap();
+        assert_eq!(s.theme, ThemePreference::Dark);
+        assert!(s.ignore_rulesets.is_empty());
+        assert!(s.ignore_rulesets_unchecked.is_empty());
+        assert!(s.ignore_rulesets_checked.is_empty());
     }
 
     /// The interface-mode choice has to survive a save and a reload, the same

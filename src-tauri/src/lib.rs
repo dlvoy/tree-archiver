@@ -4,6 +4,7 @@ pub mod events;
 pub mod explorer;
 pub mod file_order;
 pub mod fsutil;
+pub mod ignore_rules;
 pub mod model;
 pub mod naming;
 pub mod plan;
@@ -72,6 +73,10 @@ pub fn run() {
             commands::path_mode_options,
             commands::get_settings,
             commands::save_settings,
+            commands::list_ignore_rulesets,
+            commands::apply_ignore_rulesets,
+            commands::import_ignore_ruleset,
+            commands::delete_ignore_ruleset,
             commands::explorer_status,
             commands::explorer_install,
             commands::explorer_uninstall,
