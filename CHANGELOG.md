@@ -178,11 +178,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Staging folders that sit under different top-level directories of one drive —
-  say `C:\Users\Nick\.aws` alongside `C:\DOWN\bd` — produced an archive in which
-  every single entry failed to be added, because the drive root leaked into the
-  entry names and made them absolute. Entry names are now derived so that a
-  drive root can never appear in one.
+- Staging folders that sit under different top-level directories of one drive.
 - The suggested output file name no longer comes out as `C__` when the staged
   paths span a whole drive.
 
