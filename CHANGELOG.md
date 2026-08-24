@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The README is now written for people using the app, with screenshots,
+  install instructions, and a walkthrough of every feature. Build
+  instructions and internal architecture notes moved to `BUILDING.md`.
+
 ## [1.6.0] - 2026-08-24
 
 ### Added

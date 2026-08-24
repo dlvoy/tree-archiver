@@ -1,154 +1,160 @@
 # Tree Archiver
 
-A Windows desktop app for planning archives of large directory trees, then
-building them — as `.tar`, `.tar.gz` or `.7z`. Rust + Tauri 2 behind a React
-tree view.
+Plan and build TAR / TAR.GZ archives of large directory trees.
 
-Existing tools make you choose between writing exclusion patterns blind and
-ticking thousands of individual files. This one lets you see each branch's size,
-decide what goes in, save that decision as a reusable plan, and execute it.
+![Tree Archiver, staged with a project and its design assets](docs/images/hero.png)
 
-## Running it
+Tree Archiver shows the size of every folder before you decide what to include. 
 
-```
-npm install
-npm run tauri dev      # development, with hot reload
-npm run tauri build    # NSIS + MSI installers in src-tauri/target/release/bundle
-```
+Check or uncheck whole branches at once, and save the selection as a plan you can run again later.
 
-Requires Rust (MSVC toolchain), Node 20+, and the WebView2 runtime, which ships
-with Windows 10/11.
+## What it does
 
-Prebuilt installers are attached to each [release](https://github.com/dlvoy/tree-archiver/releases).
-See [BUILDING.md](BUILDING.md) for the full toolchain setup, the release
-pipeline, and how to cut a version.
+- See each folder's size and how much of it is selected before building anything.
+- Check or uncheck a whole branch at once. A folder with thousands of loose files still shows as one row.
+- AutoIgnore matches a ruleset against everything staged and unchecks what it finds.
+- Archive as `.tar`, `.tar.gz`, or `.7z`. Tar size is exact before you build it.
+- Progress view with throughput, time remaining, and a saveable log.
+- Save a selection as a plan and reopen it later.
+- Right-click a folder in Explorer to archive it without opening the app
+  first.
+- English, Polish, and German. Light, dark, or follows Windows.
 
-## Designing an archive
+## Install
 
-Drop folders anywhere in the window, or use **Add folders** / **Add files**.
-Everything you add arrives collapsed and fully checked — uncheck what you want
-to leave out.
+Download the latest release from the
+[Releases page](https://github.com/dlvoy/tree-archiver/releases/latest).
 
-- The tree root is always the topmost folder common to everything you have
-  added. Directories between that root and your sources appear as
-  **pass-through** nodes and hold only the branches you added, never their
-  unlisted siblings on disk.
-- Each directory's loose files are grouped under a `<files>` pseudo-folder, so a
-  folder with 4,000 files is one row until you open it. Unchecking the group
-  drops every file in it while leaving subfolders alone.
-- The size column shows `selected / total` for partly-selected rows, with a
-  hairline beneath filled to that proportion. A full rule means the whole branch
-  is going in; an empty track means none of it.
-- Sort by name or size, ascending or descending. Size sorting uses each branch's
-  size on disk, so rows do not move around while you are ticking boxes.
+| File | Use |
+| --- | --- |
+| `TreeArchiver-<version>-x64-setup.exe` | Installer. Adds a start menu entry and an uninstaller. |
+| `TreeArchiver-<version>-x64-portable.exe` | The application on its own, nothing to install. |
+| `TreeArchiver-<version>-x64.msi` | For deployment through Group Policy or Intune. |
 
-Keyboard: arrows move and expand/collapse, <kbd>Space</kbd> toggles a row,
-<kbd>Ctrl</kbd>+<kbd>A</kbd> checks everything, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> clears it.
+Requires 64-bit Windows 10 or 11 and the WebView2 runtime, which ships with
+both. Nothing else to install.
 
-## The plan file
-
-**Save** writes a JSON plan. The baseline is "everything under `sources`", and
-`rules` subtract from it — so unchecking a folder is recorded as a single rule
-covering that whole branch, never as a list of the files inside it:
-
-```json
-{
-  "version": 1,
-  "root": "C:\\Users\\Nick",
-  "sources": ["C:\\Users\\Nick\\.android", "C:\\Users\\Nick\\.atom"],
-  "sort": { "by": "size", "dir": "desc" },
-  "output": { "compression": "none", "gzipLevel": 6, "sevenzLevel": 6, "sevenzSolid": false },
-  "rules": [
-    { "path": ".android/avd", "scope": "tree", "action": "exclude" },
-    { "path": ".atom/packages", "scope": "files", "action": "exclude" },
-    { "path": ".atom/config.cson", "scope": "file", "action": "exclude" }
-  ]
-}
-```
-
-| Scope | Covers |
-|---|---|
-| `tree` | the folder and everything beneath it |
-| `files` | only a folder's direct files — its `<files>` group; subfolders survive |
-| `file` | one file |
-
-Paths are relative to `root` with forward slashes. Rules apply in order and the
-last one wins, so a hand-written `include` rule can carve an exception out of an
-excluded branch. **Open** rescans the sources and reapplies the rules; anything
-that no longer exists is reported rather than silently dropped.
-
-## Building the archive
-
-**Archive…** asks for an output path and shows the spec. For an uncompressed
-`.tar` the predicted size is exact — it is computed from the real tar block
-layout, not estimated. Choosing gzip or 7z keeps that number as a labelled
-upper bound.
-
-Three formats:
-
-| Format | What it writes |
-|---|---|
-| **None** | a plain `.tar`, the only one whose size is known in advance |
-| **gzip** | `.tar.gz`, level 1–9 |
-| **7z** | `.7z`, LZMA2 preset 0–9, optionally **solid** |
-
-A **solid** 7z packs every file into one shared stream. It is markedly smaller
-on a tree of many small files, but progress is reported more coarsely and
-extracting one file means decompressing what came before it. Off by default.
-
-While it runs you get a progress bar, throughput, ETA, and a collapsible log.
-
-- **An unchecked folder contributes nothing** — no directory entry, no contents.
-- **A file that cannot be read never stops the run.** It is logged at error
-  level and skipped, and the archive completes. Save the log afterwards from the
-  same dialog.
-- Entries are named relative to the root's parent, so extracting produces one
-  top-level folder rather than spraying files into the current directory.
-- Cancelling deletes the partial archive.
-
-Directory junctions and symlinks are recorded but never followed, which is what
-keeps a scan of a folder containing a link to itself from running forever. Paths
-longer than the legacy 260-character limit are handled throughout.
-
-## Layout
+These builds are unsigned, so Windows SmartScreen warns on first run.
+Choose **More info**, then **Run anyway**. To verify a download against the
+release's `checksums.txt`:
 
 ```
-src/                     React frontend
-  api/commands.ts        typed wrappers over the Rust command surface
-  store/tree.ts          what has been looked at: nodes, children, expansion
-  components/            toolbar, virtualized tree, dialogs
-src-tauri/src/
-  model/arena.rs         the tree; nodes in a Vec, referenced by index
-  model/check.rs         tri-state propagation
-  model/sort.rs          natural-order and size comparison
-  roots.rs               common-ancestor computation and rebuilds
-  scan.rs                threaded directory walking
-  plan.rs                plan format, rule compaction and application
-  archive.rs             tar and 7z writing, progress, error tolerance
-  commands.rs            the IPC surface
+certutil -hashfile <file> SHA256
 ```
 
-The Rust side owns the tree. The webview never touches the filesystem — it has
-no filesystem capability at all — and never receives the whole tree; it asks for
-one node's children at a time and caches them.
+## Using it
 
-## Tests
+### Adding sources
 
-```
-cd src-tauri && cargo test
-```
+Drag folders or files onto the window, or use **Add folders** / **Add
+files**. Everything arrives fully checked. Uncheck what you want to leave
+out. Turn on **Integrate with Explorer** in Settings to add "Archive with
+Tree Archiver" to the right-click menu. Picking it stages your selection in
+the window that's already open.
 
-128 tests. The unit tests cover check propagation, re-rooting, natural sort,
-plan compaction (including that compaction is a fixpoint over application), the
-tar block arithmetic, and both 7z paths — a stream per file and one solid block
-— down to an extract-and-compare of the bytes. The integration suite in
-`tests/end_to_end.rs` builds a real tree on disk to cover the Windows-specific
-hazards: paths past 260 characters, a junction that points at its own ancestor,
-a file that disappears between planning and writing, and an extract-and-compare
-round trip.
+### Selection
+
+Each row has a tri-state checkbox: checked, unchecked, or partially
+selected. A folder's loose files are grouped under a `<files>` row, so a
+folder with 4,000 files stays one row until you open it. Unchecking the
+group drops every file in it and leaves subfolders alone. The size column
+shows `selected / total` with a hairline meter underneath, so a partly-kept
+branch is visible at a glance. Sort by **Name**, **Size**, or **Count**, and
+use the keyboard: arrows to move and expand or collapse, <kbd>Space</kbd> to
+toggle a row, <kbd>Ctrl</kbd>+<kbd>A</kbd> to check everything,
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> to clear it.
+
+### AutoIgnore
+
+![The AutoIgnore dialog listing built-in rulesets](docs/images/auto-ignore.png)
+
+Click **AutoIgnore** to match a catalog of `.gitignore`-style rulesets
+against everything staged and uncheck whatever they find. Matched items are
+tagged **auto** so you can tell them apart from something you unchecked by
+hand. Re-checking one by hand clears the tag for good, even across a later
+AutoIgnore run.
+
+Thirteen built-in rulesets cover common cases such as backups, caches,
+dependency folders, and OS or editor metadata. Each one lists the exact
+patterns it matches, so you can check what it excludes before applying it.
+You can also import your own ruleset from any file written in `.gitignore`
+syntax. Built-in rulesets can be applied but not deleted. **Case
+Insensitive** makes patterns match regardless of letter case.
+
+### Plans
+
+**Save** writes a small file recording what you staged and what you
+unchecked. **Open** rescans those sources and reapplies the same decisions.
+Unchecking a folder is recorded as a single decision about that whole
+branch, not a list of every file inside it, so the plan still makes sense
+after the folder's contents change. If something the plan refers to no
+longer exists, you're told about it rather than having it silently dropped.
+
+*(Power users: the plan file format is documented in [BUILDING.md](BUILDING.md).)*
+
+### Building the archive
+
+![The build archive dialog with output path, format, and compression options](docs/images/building-archive.png)
+
+Click **Archive…**, choose where to save, and pick how much of each path to
+keep:
+
+| Mode | What ends up in the archive |
+| --- | --- |
+| **Folders only** | Each staged folder sits at the top |
+| **Common root** | The folder the staged paths have in common |
+| **Full path** | The whole path, drive letter included |
+
+Then pick a format:
+
+| Format | Writes | Notes |
+| --- | --- | --- |
+| **None** | `.tar` | The only format whose final size is known exactly in advance |
+| **gzip** | `.tar.gz` | Compression level 1–9 |
+| **7z** | `.7z` | LZMA2 level 0–9, with an optional **Solid archive** checkbox |
+
+A solid 7z packs every file into one shared stream. It's smaller when there
+are many small files, at the cost of coarser progress reporting and slower
+extraction of any single file. Before you start, the dialog shows the entry
+count, the content size, and the resulting archive size: exact for `.tar`,
+an upper bound for gzip and 7z. You can also save just the list of entries
+to a text file without building the archive.
+
+![The build result with progress stats and a log](docs/images/archiving.png)
+
+While it runs you get a progress bar, throughput, time remaining, and a
+collapsible log you can save afterwards. An unchecked folder contributes
+nothing to the archive. A file that can't be read is logged and skipped
+rather than stopping the run. Cancelling deletes the partial archive.
+
+## Settings
+
+![The Settings dialog](docs/images/settings.png)
+
+- **Theme**: System, Light, or Dark.
+- **Language**: System, English, Polski, or Deutsch.
+- **App interface**: icons only, labels only, or both, for the toolbar.
+- **File archiving order**: *Optimal* groups similar files together for
+  better compression, *As in plan* keeps today's tree order, and
+  *Alphabetical* sorts by name.
+- **Integrate with Explorer**: adds the right-click entry described above.
+  This affects only your own Windows account and needs no administrator
+  rights.
+
+## Good to know
+
+- Directory junctions and symlinks are recorded in an archive but never
+  followed, so a folder containing a link to its own ancestor can't scan
+  forever.
+- Paths longer than the legacy 260-character limit work throughout.
 
 ## Licence
 
-MIT — see [LICENSE.txt](LICENSE.txt). The text is compiled into the executable
-and shown by **About**, the ⓘ button in the toolbar, alongside the version, the
-build date and the commit the build was cut from.
+MIT. See [LICENSE.txt](LICENSE.txt). The full text ships inside the
+application and is shown by **About** (the ⓘ button), alongside the version,
+build date, and commit the build was cut from.
+
+## Building from source
+
+See [BUILDING.md](BUILDING.md) for the toolchain, local builds, tests, and
+the release pipeline.

@@ -48,12 +48,76 @@ cd src-tauri
 cargo test             # 128 tests: 119 unit, 9 end-to-end
 ```
 
-The end-to-end suite writes real trees under `%TEMP%`, including a directory
-junction and paths past 260 characters, and cleans up after itself.
+The unit tests cover check-state propagation, re-rooting when sources are
+added or removed, natural-order sort, plan-rule compaction (including that
+compaction is a fixpoint over application), the tar block-size arithmetic,
+and both 7z paths — a stream per file and one solid block — down to an
+extract-and-compare of the bytes. The end-to-end suite in `tests/end_to_end.rs`
+writes real trees under `%TEMP%` to cover the Windows-specific hazards: paths
+past 260 characters, a junction that points at its own ancestor, a file that
+disappears between planning and writing, and an extract-and-compare round
+trip. It cleans up after itself.
 
 Type-checking the frontend happens automatically during `npm run tauri build`,
 since `beforeBuildCommand` runs `tsc --noEmit && vite build`. To check without a
 full build, run `npx tsc --noEmit`.
+
+## Project layout
+
+```
+src/                       React frontend
+  api/commands.ts          typed wrappers over the Rust command surface
+  store/tree.ts            what has been looked at: nodes, children, expansion
+  components/              toolbar, virtualized tree, dialogs
+src-tauri/src/
+  model/arena.rs           the tree; nodes in a Vec, referenced by index
+  model/check.rs           tri-state propagation
+  model/sort.rs            natural-order and size comparison
+  roots.rs                 common-ancestor computation and rebuilds
+  scan.rs                  threaded directory walking
+  plan.rs                  plan format, rule compaction and application
+  ignore_rules.rs          AutoIgnore built-in presets and matching
+  archive.rs               tar, gzip, and 7z writing, progress, error tolerance
+  commands.rs              the IPC surface
+```
+
+The Rust side owns the tree. The webview never touches the filesystem — it
+has no filesystem capability at all — and never receives the whole tree; it
+asks for one node's children at a time and caches them.
+
+## Plan file format
+
+**Save** writes a JSON plan. The baseline is "everything under `sources`",
+and `rules` subtract from it — so unchecking a folder is recorded as a
+single rule covering that whole branch, never as a list of the files inside
+it:
+
+```json
+{
+  "version": 1,
+  "root": "C:\\Projects",
+  "sources": ["C:\\Projects\\app", "C:\\Projects\\design-assets"],
+  "sort": { "by": "size", "dir": "desc" },
+  "output": { "compression": "none", "gzipLevel": 6, "sevenzLevel": 6, "sevenzSolid": false },
+  "rules": [
+    { "path": "app/node_modules", "scope": "tree", "action": "exclude" },
+    { "path": "app/dist", "scope": "files", "action": "exclude" },
+    { "path": "app/.env", "scope": "file", "action": "exclude" }
+  ]
+}
+```
+
+| Scope | Covers |
+|---|---|
+| `tree` | the folder and everything beneath it |
+| `files` | only a folder's direct files — its `<files>` group; subfolders survive |
+| `file` | one file |
+
+Paths are relative to `root` with forward slashes. Rules apply in order and
+the last one wins, so a hand-written `include` rule can carve an exception
+out of an excluded branch. **Open** rescans the sources and reapplies the
+rules; anything that no longer exists is reported rather than silently
+dropped.
 
 ## The release pipeline
 
