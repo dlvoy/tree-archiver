@@ -13,7 +13,7 @@ export type CheckState = "checked" | "unchecked" | "partial";
 export type NodeKind = "dir" | "file" | "filesGroup" | "syntheticRoot";
 export type SortBy = "name" | "size";
 export type SortDir = "asc" | "desc";
-export type Compression = "none" | "gzip";
+export type Compression = "none" | "gzip" | "7z";
 /** How much of a file's original path is kept inside the archive. */
 export type PathMode = "foldersOnly" | "commonRoot" | "fullPath";
 export type ThemePreference = "system" | "light" | "dark";
@@ -71,6 +71,10 @@ export interface OutputOptions {
   compression: Compression;
   gzipLevel: number;
   pathMode: PathMode;
+  /** LZMA2 preset, 0-9. Only 7z reads it. */
+  sevenzLevel: number;
+  /** Whether 7z packs every file into one shared stream. */
+  sevenzSolid: boolean;
 }
 
 export interface Settings {
@@ -212,6 +216,17 @@ export const pathModeOptions = () =>
  */
 export const restoreView = (expanded: string[], selected: string | null) =>
   invoke<RestoredView>("restore_view", { expanded, selected });
+
+/** Version, build stamp, and the licence compiled into the executable. */
+export interface AppInfo {
+  version: string;
+  buildDate: string;
+  gitHash: string;
+  releaseUrl: string;
+  license: string;
+}
+
+export const appInfo = () => invoke<AppInfo>("app_info");
 
 export const getSettings = () => invoke<Settings>("get_settings");
 

@@ -25,6 +25,7 @@ export const en = {
   "toolbar.stop": "Stop",
   "toolbar.scanned": "{files} files · {bytes}",
   "toolbar.settings": "Settings",
+  "toolbar.about": "About Tree Archiver",
 
   // ---------------------------------------------------------------- theme and language
   "theme.label": "Theme: {name}",
@@ -77,6 +78,10 @@ export const en = {
   "build.compression": "Compression",
   "build.compressionNone": "None (.tar)",
   "build.compressionGzip": "gzip (.tar.gz)",
+  "build.compression7z": "7z (.7z)",
+  "build.solid": "Solid archive",
+  "build.solidHint":
+    "Packs every file into one shared stream. Smaller when there are many small files, at the cost of coarser progress and slower extraction of any single file.",
   "build.level": "Level {level}",
   "build.faster": "faster",
   "build.smaller": "smaller",
@@ -95,6 +100,7 @@ export const en = {
   "build.saveAs": "Save archive as",
   "build.filterTar": "Tar archive",
   "build.filterTarGz": "Gzipped tar",
+  "build.filter7z": "7z archive",
 
   // ---------------------------------------------------------------- progress
   "progress.building": "Building archive",
@@ -137,6 +143,7 @@ export const en = {
   "log.dirFailed": "could not add the folder: {error}",
   "log.skipped": "skipped: {error}",
   "log.padded": "added with padding after a read failure: {error}",
+  "log.truncated": "added short after a read failure: {error}",
   "log.createFailed": "cannot create the archive: {error}",
   "log.writeFailed": "writing the archive failed: {error}",
   "log.cancelledDeleted": "cancelled; the partial archive was deleted",
@@ -186,5 +193,14 @@ export const en = {
   "app.addFoldersTitle": "Add folders",
   "app.addFilesTitle": "Add files",
   "app.dismiss": "Dismiss",
+
+  // ---------------------------------------------------------------- about
+  "about.title": "About",
+  "about.tagline": "Plan and build archives of large directory trees.",
+  "about.license": "MIT LICENSE",
+  "about.licenseTitle": "MIT License",
+  "about.releaseTitle": "Release notes for {version}",
+  "about.builtLabel": "Build date",
+  "about.commitLabel": "Commit",
   "app.close": "Close",
 } as const;

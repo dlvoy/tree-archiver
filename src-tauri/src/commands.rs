@@ -4,7 +4,7 @@
 //! It asks for one node's children at a time and caches them, which keeps a
 //! scan of a few hundred thousand files off the IPC boundary entirely.
 
-use crate::archive::{self, ArchiveSummary, Entry, Estimate, LogEntry, LogLevel};
+use crate::archive::{self, ArchiveSummary, Entry, Estimate, LogEntry, LogLevel, Progress};
 use crate::events;
 use crate::fsutil;
 use crate::model::arena::{Arena, CheckState, NodeId, NodeKind};
@@ -81,6 +81,59 @@ impl Default for AppState {
 /// A batch is flushed on this many lines even if the timer has not expired,
 /// so a fast local disk cannot build an unbounded backlog.
 const LOG_BATCH_MAX: usize = 2000;
+
+/// How often the progress panel is refreshed while a run is going. Ten a
+/// second is smooth without flooding the IPC channel.
+const PROGRESS_EVERY: Duration = Duration::from_millis(100);
+
+/// Rate-limits progress events on their way to the window.
+///
+/// Two things here are load-bearing, and both were once wrong. The first event
+/// goes out immediately, so a run shorter than one interval still reports
+/// something. And whatever arrives between the last tick and the end of the run
+/// is kept, so `flush` can send it: that final event is the one carrying the
+/// full file count, and dropping it left the panel reading "4 / 61" beside a
+/// summary that said 61.
+struct ProgressThrottle {
+    every: Duration,
+    last_emit: Instant,
+    latest: Option<Progress>,
+    /// Whether `latest` has already gone out, so `flush` does not repeat it.
+    sent: bool,
+}
+
+impl ProgressThrottle {
+    fn new(every: Duration) -> Self {
+        ProgressThrottle {
+            every,
+            // Far enough back that the first event is due at once.
+            last_emit: Instant::now() - every,
+            latest: None,
+            sent: true,
+        }
+    }
+
+    /// The event to send now, if one is due.
+    fn push(&mut self, p: Progress) -> Option<Progress> {
+        self.latest = Some(p);
+        self.sent = false;
+        if self.last_emit.elapsed() >= self.every {
+            self.last_emit = Instant::now();
+            self.sent = true;
+            return Some(p);
+        }
+        None
+    }
+
+    /// The last event held back, if any. Called once the run is over.
+    fn flush(&mut self) -> Option<Progress> {
+        if self.sent {
+            return None;
+        }
+        self.sent = true;
+        self.latest
+    }
+}
 
 type Cmd<T> = Result<T, String>;
 
@@ -854,8 +907,9 @@ pub fn start_archive(
     // optimisation — one IPC message per file would stall the window.
     let pending: Mutex<Vec<LogEntry>> = Mutex::new(Vec::new());
 
+    let throttle: Mutex<ProgressThrottle> = Mutex::new(ProgressThrottle::new(PROGRESS_EVERY));
+
     std::thread::spawn(move || {
-        let mut last_emit = Instant::now();
         let mut last_log = Instant::now();
         let flush = |app: &AppHandle, pending: &Mutex<Vec<LogEntry>>| {
             let batch = match pending.lock() {
@@ -871,9 +925,8 @@ pub fn start_archive(
             options,
             cancel,
             |p| {
-                // 10 updates a second keeps the bar smooth without spamming.
-                if last_emit.elapsed() >= Duration::from_millis(100) {
-                    last_emit = Instant::now();
+                let due = throttle.lock().ok().and_then(|mut t| t.push(p));
+                if let Some(p) = due {
                     let _ = app_handle.emit(events::ARCHIVE_PROGRESS, p);
                 }
             },
@@ -896,6 +949,14 @@ pub fn start_archive(
                 }
             },
         );
+
+        // Whatever the throttle was still holding when the run ended. Without
+        // this the panel keeps the last figures that happened to fall on a
+        // tick — a file count short of the total, and a bar short of 100%.
+        let last = throttle.lock().ok().and_then(|mut t| t.flush());
+        if let Some(p) = last {
+            let _ = app_handle.emit(events::ARCHIVE_PROGRESS, p);
+        }
 
         // The closing summary lines land in the same batch as the tail.
         flush(&app_handle, &pending);
@@ -954,9 +1015,131 @@ pub fn output_extension(compression: Compression) -> String {
     compression.extension().to_string()
 }
 
+// ---------------------------------------------------------------- about
+
+/// What the About dialog shows, and the licence it links to.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppInfo {
+    pub version: &'static str,
+    /// `YYYY-MM-DD`, UTC. `unknown` only if the build script could not run.
+    pub build_date: &'static str,
+    /// Seven characters, or `unknown` when built outside a git checkout.
+    pub git_hash: &'static str,
+    /// The release this version was cut as. Assembled here so the repository
+    /// URL has one source of truth: `Cargo.toml`.
+    pub release_url: String,
+    pub license: &'static str,
+}
+
+/// The licence is compiled in with `include_str!` rather than read at runtime,
+/// so it travels with the executable and cannot go missing.
+#[tauri::command]
+pub fn app_info() -> AppInfo {
+    let version = env!("CARGO_PKG_VERSION");
+    AppInfo {
+        version,
+        build_date: env!("TA_BUILD_DATE"),
+        git_hash: env!("TA_GIT_HASH"),
+        release_url: format!(
+            "{}/releases/tag/v{version}",
+            env!("CARGO_PKG_REPOSITORY").trim_end_matches('/')
+        ),
+        license: include_str!("../../LICENSE.txt"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::paths_from_args;
+    use super::{app_info, paths_from_args, Progress, ProgressThrottle};
+    use std::time::Duration;
+
+    fn progress(files_done: u64, bytes_done: u64) -> Progress {
+        Progress {
+            files_done,
+            files_total: 61,
+            bytes_done,
+            bytes_total: 50_000_000,
+            bps: 0,
+            eta_secs: None,
+        }
+    }
+
+    /// A run shorter than one interval used to report nothing at all, leaving
+    /// every figure in the panel as a dash.
+    #[test]
+    fn the_first_event_is_never_held_back() {
+        let mut t = ProgressThrottle::new(Duration::from_secs(60));
+        assert!(t.push(progress(1, 10)).is_some());
+    }
+
+    /// The bug behind "4 / 61" beside a summary saying 61: everything after the
+    /// last tick was dropped, and the last tick is never the final event.
+    #[test]
+    fn the_final_event_survives_the_throttle() {
+        let mut t = ProgressThrottle::new(Duration::from_secs(60));
+        t.push(progress(1, 10)).unwrap();
+
+        // Nothing else is due for a minute, so these are all held.
+        assert!(t.push(progress(2, 20)).is_none());
+        assert!(t.push(progress(61, 50_000_000)).is_none());
+
+        let last = t.flush().expect("the last event was dropped");
+        assert_eq!(last.files_done, 61);
+        assert_eq!(last.bytes_done, 50_000_000);
+    }
+
+    /// Flushing an event that already went out would emit it twice.
+    #[test]
+    fn flush_repeats_nothing_that_was_already_sent() {
+        let mut t = ProgressThrottle::new(Duration::from_secs(60));
+        t.push(progress(1, 10)).unwrap();
+        assert!(t.flush().is_none());
+    }
+
+    #[test]
+    fn flushing_before_anything_happened_yields_nothing() {
+        let mut t = ProgressThrottle::new(Duration::from_secs(60));
+        assert!(t.flush().is_none());
+    }
+
+    /// The licence is compiled in, so an empty or missing one is a build fault
+    /// rather than something the user finds at runtime.
+    #[test]
+    fn the_licence_travels_inside_the_binary() {
+        let info = app_info();
+        assert!(info.license.contains("MIT License"), "{}", info.license);
+        assert!(info.license.contains("Dominik Dzienia"));
+        assert!(info.license.contains("WITHOUT WARRANTY OF ANY KIND"));
+    }
+
+    /// The About dialog links straight at the tag for this version, so the URL
+    /// has to match what the release workflow actually publishes.
+    #[test]
+    fn the_release_link_points_at_this_version() {
+        let info = app_info();
+        assert_eq!(
+            info.release_url,
+            format!(
+                "https://github.com/dlvoy/tree-archiver/releases/tag/v{}",
+                env!("CARGO_PKG_VERSION")
+            )
+        );
+    }
+
+    /// A stamp is only useful if it is a stamp. "unknown" is the documented
+    /// fallback, but the shape still has to be right.
+    #[test]
+    fn the_build_stamp_is_filled_in() {
+        let info = app_info();
+        assert!(!info.build_date.is_empty());
+        assert!(!info.git_hash.is_empty());
+        assert!(
+            info.build_date == "unknown" || info.build_date.len() == 10,
+            "odd build date: {}",
+            info.build_date
+        );
+    }
 
     /// The shape the registry writes: `"<exe>" --add "%1"`.
     #[test]

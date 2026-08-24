@@ -22,6 +22,7 @@ import { TreeView } from "./components/TreeView";
 import { StatusBar } from "./components/StatusBar";
 import { ArchiveDialog, Modal } from "./components/ArchiveDialog";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { AboutDialog } from "./components/AboutDialog";
 import { ProgressView } from "./components/ProgressView";
 import * as fmt from "./lib/format";
 
@@ -36,7 +37,13 @@ const FALLBACK: Settings = {
   theme: "system",
   language: "system",
   sort: { by: "name", dir: "asc" },
-  output: { compression: "none", gzipLevel: 6, pathMode: "foldersOnly" },
+  output: {
+    compression: "none",
+    gzipLevel: 6,
+    pathMode: "foldersOnly",
+    sevenzLevel: 6,
+    sevenzSolid: false,
+  },
 };
 
 const NEXT_THEME: Record<ThemePreference, ThemePreference> = {
@@ -85,6 +92,7 @@ export default function App() {
   const [unresolved, setUnresolved] = useState<UnresolvedRule[] | null>(null);
   const [showIssues, setShowIssues] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
   const [settings, setSettings] = useState<Settings>(() => ({
     ...FALLBACK,
     theme: cached<ThemePreference>("theme", ["system", "light", "dark"], "system"),
@@ -348,6 +356,7 @@ export default function App() {
           onCycleTheme={() => patchSettings({ theme: NEXT_THEME[settings.theme] })}
           onCycleLanguage={cycleLanguage}
           onOpenSettings={() => setShowSettings(true)}
+          onOpenAbout={() => setShowAbout(true)}
         />
 
         <main className="main">
@@ -388,6 +397,8 @@ export default function App() {
             onClose={() => setShowSettings(false)}
           />
         )}
+
+        {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}
 
         {stage.at === "configure" && (
           <ArchiveDialog

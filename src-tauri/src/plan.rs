@@ -45,6 +45,11 @@ pub struct Rule {
 pub enum Compression {
     None,
     Gzip,
+    /// `rename_all` would spell this `sevenZ`, which is nobody's idea of a
+    /// format name. The wire value is written out so plan files and
+    /// `settings.json` read the way the format is spoken.
+    #[serde(rename = "7z")]
+    SevenZ,
 }
 
 impl Compression {
@@ -52,7 +57,14 @@ impl Compression {
         match self {
             Compression::None => "tar",
             Compression::Gzip => "tar.gz",
+            Compression::SevenZ => "7z",
         }
+    }
+
+    /// Whether the format compresses at all, as opposed to being a container.
+    /// The predicted size is exact only when nothing is compressed.
+    pub fn is_compressed(&self) -> bool {
+        !matches!(self, Compression::None)
     }
 }
 
@@ -77,6 +89,20 @@ pub struct OutputOptions {
     /// Absent in v1 plans, which predate the setting.
     #[serde(default)]
     pub path_mode: PathMode,
+    /// LZMA2 preset for 7z. Absent in files written before 7z existed.
+    #[serde(default = "default_sevenz_level")]
+    pub sevenz_level: u32,
+    /// Whether 7z packs every file into one shared stream. Off by default:
+    /// a stream per file is what keeps per-file progress and skip-on-error
+    /// honest. Absent in files written before 7z existed.
+    #[serde(default)]
+    pub sevenz_solid: bool,
+}
+
+pub const SEVENZ_LEVEL_DEFAULT: u32 = 6;
+
+fn default_sevenz_level() -> u32 {
+    SEVENZ_LEVEL_DEFAULT
 }
 
 impl Default for OutputOptions {
@@ -85,6 +111,8 @@ impl Default for OutputOptions {
             compression: Compression::None,
             gzip_level: 6,
             path_mode: PathMode::default(),
+            sevenz_level: SEVENZ_LEVEL_DEFAULT,
+            sevenz_solid: false,
         }
     }
 }
@@ -269,6 +297,39 @@ mod tests {
     use crate::roots::{rebuild, snapshot_checks, CheckSnapshot, Sources};
     use crate::scan::{ScanDir, ScanFile, Source, SourceTree};
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn every_compression_has_its_own_extension() {
+        assert_eq!(Compression::None.extension(), "tar");
+        assert_eq!(Compression::Gzip.extension(), "tar.gz");
+        assert_eq!(Compression::SevenZ.extension(), "7z");
+        assert!(!Compression::None.is_compressed());
+        assert!(Compression::Gzip.is_compressed());
+        assert!(Compression::SevenZ.is_compressed());
+    }
+
+    /// The wire name lands in saved plans and in `settings.json`, so it is part
+    /// of the file format rather than an implementation detail. `rename_all`
+    /// would have spelled it `sevenZ`.
+    #[test]
+    fn sevenz_serialises_under_its_own_name() {
+        let json = serde_json::to_string(&Compression::SevenZ).unwrap();
+        assert_eq!(json, r#""7z""#);
+        let back: Compression = serde_json::from_str(r#""7z""#).unwrap();
+        assert_eq!(back, Compression::SevenZ);
+    }
+
+    /// Output options written before 7z existed carry neither new key, and must
+    /// still load rather than taking the whole file down with them.
+    #[test]
+    fn output_options_from_before_sevenz_still_load() {
+        let o: OutputOptions =
+            serde_json::from_str(r#"{"compression":"gzip","gzipLevel":3}"#).unwrap();
+        assert_eq!(o.compression, Compression::Gzip);
+        assert_eq!(o.gzip_level, 3);
+        assert_eq!(o.sevenz_level, SEVENZ_LEVEL_DEFAULT);
+        assert!(!o.sevenz_solid);
+    }
 
     fn sdir(name: &str, dirs: Vec<ScanDir>, files: Vec<(&str, u64)>) -> ScanDir {
         ScanDir {

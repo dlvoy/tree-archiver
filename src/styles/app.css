@@ -1417,3 +1417,109 @@ input {
   font-size: 10.5px;
   font-family: var(--font-mono);
 }
+
+/* ---------------------------------------------------------------- about */
+
+.about__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.about__mark {
+  flex: none;
+  margin-top: 1px;
+  color: var(--accent);
+}
+
+.about__names {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.about__name {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.about__tagline {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+/* The hairline the credit sits under, in the drawing-rule idiom the rest of
+   the app uses to close a block off. */
+.about__foot {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.about__copy {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.about__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.about__sep {
+  color: var(--line);
+}
+
+/* A link, not a button: the app opens URLs through the shell, because the
+   webview has no navigation of its own under the CSP. */
+.linkbtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.linkbtn:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.linkbtn:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+.linkbtn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Licence text, verbatim: wrapped rather than scrolled sideways, and capped
+   so the dialog cannot outgrow the window. */
+.license {
+  margin: 0;
+  max-height: 46vh;
+  overflow: auto;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -1,8 +1,15 @@
-//! Tar writing.
+//! Archive writing.
 //!
 //! Two rules shape this module. Unchecked folders contribute *nothing* — not
 //! even an empty directory entry. And a file that cannot be read is logged and
 //! skipped: an unreadable file must never end the run.
+//!
+//! Three formats come out of one traversal. `.tar` and `.tar.gz` are the same
+//! tar stream with an optional compressor around it; `.7z` is a different
+//! container entirely. `EntrySink` is what lets all three share the loop, the
+//! progress accounting and the error policy above. Solid 7z is the one
+//! exception — it has to hand every file over at once — and gets its own
+//! function.
 
 use crate::fsutil;
 use crate::model::arena::{Arena, CheckState, NodeId, NodeKind};
@@ -10,10 +17,14 @@ use crate::model::sort::{sort_children, SortKey};
 use crate::naming::NamingContext;
 use crate::plan::{Compression, OutputOptions, PathMode};
 use serde::Serialize;
+use sevenz_rust2::encoder_options::Lzma2Options;
+use sevenz_rust2::{ArchiveEntry, ArchiveWriter, SourceReader};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
@@ -354,15 +365,20 @@ where
         rate: Rate::new(),
     };
 
-    let mut log = |level: LogLevel, path: &str, msg: LogMsg, on_log: &mut L| {
-        on_log(LogEntry {
-            ts: fsutil::iso8601_utc(SystemTime::now()),
-            level,
-            path: path.to_string(),
-            key: msg.key,
-            args: msg.args,
-            message: msg.text,
-        });
+    // Open with the totals rather than nothing. Compressing the first file can
+    // take a while, and until it lands there is otherwise no event at all and
+    // the panel reads as though the run has not started.
+    on_progress(Progress {
+        files_done: 0,
+        files_total: est.files,
+        bytes_done: 0,
+        bytes_total: est.payload_bytes,
+        bps: 0,
+        eta_secs: None,
+    });
+
+    let log = |level: LogLevel, path: &str, msg: LogMsg, on_log: &mut L| {
+        emit(on_log, level, path, msg);
     };
 
     let file = match File::create(out_path) {
@@ -392,28 +408,47 @@ where
     let writer = BufWriter::with_capacity(1 << 20, file);
     let result = match options.compression {
         Compression::None => write_all(
-            tar::Builder::new(writer),
+            TarSink(tar::Builder::new(writer)),
             entries,
             &est,
             &cancel,
             &mut state,
             &mut on_progress,
             &mut on_log,
-            &mut log,
         ),
         Compression::Gzip => {
             let level = flate2::Compression::new(options.gzip_level.clamp(1, 9));
             write_all(
-                tar::Builder::new(flate2::write::GzEncoder::new(writer, level)),
+                TarSink(tar::Builder::new(flate2::write::GzEncoder::new(writer, level))),
                 entries,
                 &est,
                 &cancel,
                 &mut state,
                 &mut on_progress,
                 &mut on_log,
-                &mut log,
             )
         }
+        Compression::SevenZ => match sevenz_writer(writer, options.sevenz_level) {
+            Err(e) => Err(e),
+            Ok(w) if options.sevenz_solid => write_all_solid(
+                w,
+                entries,
+                &est,
+                &cancel,
+                &mut state,
+                &mut on_progress,
+                &mut on_log,
+            ),
+            Ok(w) => write_all(
+                SevenZSink(w),
+                entries,
+                &est,
+                &cancel,
+                &mut state,
+                &mut on_progress,
+                &mut on_log,
+            ),
+        },
     };
 
     let cancelled = cancel.load(Ordering::Relaxed);
@@ -549,23 +584,149 @@ struct RunState {
     rate: Rate,
 }
 
+/// Where entries end up once the loop has decided what to write.
+///
+/// Everything that is the same whatever the format — the traversal order, the
+/// byte accounting, the cancellation checks, the rule that an unreadable file
+/// is skipped rather than fatal — stays in `write_all`. Only the container
+/// differs, and that is all this trait is.
+trait EntrySink {
+    fn add_dir(&mut self, entry: &Entry, disk_path: &Path, mtime: u64) -> io::Result<()>;
+
+    fn add_file(
+        &mut self,
+        entry: &Entry,
+        disk_path: &Path,
+        size: u64,
+        mtime: u64,
+        reader: &mut dyn Read,
+    ) -> io::Result<()>;
+
+    fn finish(self) -> io::Result<()>;
+}
+
+struct TarSink<W: Write>(tar::Builder<W>);
+
+impl<W: Write> EntrySink for TarSink<W> {
+    fn add_dir(&mut self, entry: &Entry, _disk_path: &Path, mtime: u64) -> io::Result<()> {
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Directory);
+        header.set_size(0);
+        header.set_mode(0o755);
+        header.set_mtime(mtime);
+        header.set_uid(0);
+        header.set_gid(0);
+
+        // tar convention: directory names carry a trailing slash.
+        let name = format!("{}/", entry.name);
+        self.0.append_data(&mut header, name, io::empty())
+    }
+
+    fn add_file(
+        &mut self,
+        entry: &Entry,
+        _disk_path: &Path,
+        size: u64,
+        mtime: u64,
+        reader: &mut dyn Read,
+    ) -> io::Result<()> {
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_size(size);
+        header.set_mode(0o644);
+        header.set_mtime(mtime);
+        header.set_uid(0);
+        header.set_gid(0);
+
+        self.0.append_data(&mut header, &entry.name, reader)
+    }
+
+    fn finish(self) -> io::Result<()> {
+        self.0.into_inner()?.flush()
+    }
+}
+
+struct SevenZSink(ArchiveWriter<BufWriter<File>>);
+
+impl EntrySink for SevenZSink {
+    fn add_dir(&mut self, entry: &Entry, disk_path: &Path, _mtime: u64) -> io::Result<()> {
+        self.0
+            .push_archive_entry::<&[u8]>(sevenz_entry(entry, disk_path), None)
+            .map(|_| ())
+            .map_err(sevenz_io)
+    }
+
+    fn add_file(
+        &mut self,
+        entry: &Entry,
+        disk_path: &Path,
+        _size: u64,
+        _mtime: u64,
+        reader: &mut dyn Read,
+    ) -> io::Result<()> {
+        self.0
+            .push_archive_entry(sevenz_entry(entry, disk_path), Some(reader))
+            .map(|_| ())
+            .map_err(sevenz_io)
+    }
+
+    fn finish(self) -> io::Result<()> {
+        self.0.finish()?.flush()
+    }
+}
+
+/// A 7z writer over the output file, set to LZMA2 at the chosen preset.
+fn sevenz_writer(
+    writer: BufWriter<File>,
+    level: u32,
+) -> io::Result<ArchiveWriter<BufWriter<File>>> {
+    let mut w = ArchiveWriter::new(writer).map_err(sevenz_io)?;
+    w.set_content_methods(vec![Lzma2Options::from_level(level.min(9)).into()]);
+    Ok(w)
+}
+
+/// `from_path` collects the timestamps and Windows attributes, but the two
+/// flags come from the plan rather than a fresh stat: a file that vanished
+/// between the scan and now must still be written as a file, not silently
+/// demoted to something without a stream.
+fn sevenz_entry(entry: &Entry, disk_path: &Path) -> ArchiveEntry {
+    let mut e = ArchiveEntry::from_path(disk_path, entry.name.clone());
+    e.is_directory = entry.is_dir;
+    e.has_stream = !entry.is_dir;
+    e
+}
+
+/// Unwraps the `io::Error` a 7z failure is usually carrying. Without this a
+/// cancellation stops looking like one by the time it reaches `run`, and the
+/// partial archive is reported as a failure instead of being deleted quietly.
+fn sevenz_io(e: sevenz_rust2::Error) -> io::Error {
+    match e {
+        sevenz_rust2::Error::Io(inner, _) | sevenz_rust2::Error::FileOpen(inner, _) => inner,
+        other => io::Error::other(other.to_string()),
+    }
+}
+
+fn emit(on_log: &mut dyn FnMut(LogEntry), level: LogLevel, path: &str, msg: LogMsg) {
+    on_log(LogEntry {
+        ts: fsutil::iso8601_utc(SystemTime::now()),
+        level,
+        path: path.to_string(),
+        key: msg.key,
+        args: msg.args,
+        message: msg.text,
+    });
+}
+
 #[allow(clippy::too_many_arguments)]
-fn write_all<W, P, L, LG>(
-    mut builder: tar::Builder<W>,
+fn write_all<S: EntrySink>(
+    mut sink: S,
     entries: &[Entry],
     est: &Estimate,
     cancel: &Arc<AtomicBool>,
     state: &mut RunState,
-    on_progress: &mut P,
-    on_log: &mut L,
-    log: &mut LG,
-) -> io::Result<()>
-where
-    W: Write,
-    P: FnMut(Progress),
-    L: FnMut(LogEntry),
-    LG: FnMut(LogLevel, &str, LogMsg, &mut L),
-{
+    on_progress: &mut dyn FnMut(Progress),
+    on_log: &mut dyn FnMut(LogEntry),
+) -> io::Result<()> {
     for entry in entries {
         if cancel.load(Ordering::Relaxed) {
             return Err(io::Error::new(io::ErrorKind::Interrupted, CANCELLED));
@@ -576,19 +737,20 @@ where
         };
 
         if entry.is_dir {
-            match append_dir(&mut builder, entry, &disk_path) {
+            match sink.add_dir(entry, &disk_path, dir_mtime(&disk_path)) {
                 Ok(()) => {
                     state.dirs_done += 1;
-                    log(
+                    emit(
+                        on_log,
                         LogLevel::Info,
                         &entry.name,
                         LogMsg::new("log.addedDir", "added folder"),
-                        on_log,
                     );
                 }
                 Err(e) => {
                     state.errors += 1;
-                    log(
+                    emit(
+                        on_log,
                         LogLevel::Error,
                         &entry.name,
                         LogMsg::new(
@@ -596,7 +758,6 @@ where
                             format!("could not add the directory: {e}"),
                         )
                         .arg("error", e.to_string()),
-                        on_log,
                     );
                 }
             }
@@ -610,11 +771,11 @@ where
             Err(e) => {
                 state.errors += 1;
                 state.skipped += 1;
-                log(
+                emit(
+                    on_log,
                     LogLevel::Error,
                     &entry.name,
                     LogMsg::new("log.skipped", format!("skipped: {e}")).arg("error", e.to_string()),
-                    on_log,
                 );
                 continue;
             }
@@ -629,29 +790,29 @@ where
             .map(fsutil::unix_secs)
             .unwrap_or(0);
 
-        let mut header = tar::Header::new_gnu();
-        header.set_entry_type(tar::EntryType::Regular);
-        header.set_size(size);
-        header.set_mode(0o644);
-        header.set_mtime(mtime);
-        header.set_uid(0);
-        header.set_gid(0);
-
-        let mut bytes_this_file = 0u64;
+        // The byte count is advanced from inside the reader rather than after
+        // the entry is written, so a single large file moves the bar as it
+        // goes instead of leaving the window still until it is finished.
+        let mut since_report = 0u64;
         let mut reader = ExactReader {
             inner: Some(file),
             remaining: size,
             degraded: false,
             error: None,
             cancel,
-            on_bytes: |n: u64| bytes_this_file += n,
+            on_bytes: |n: u64| {
+                state.bytes_done = state.bytes_done.saturating_add(n);
+                since_report += n;
+                if since_report >= REPORT_EVERY_BYTES {
+                    since_report = 0;
+                    on_progress(progress_of(state, est));
+                }
+            },
         };
 
-        let append = builder.append_data(&mut header, &entry.name, &mut reader);
+        let append = sink.add_file(entry, &disk_path, size, mtime, &mut reader);
         let read_error = reader.error.take();
         drop(reader);
-
-        state.bytes_done = state.bytes_done.saturating_add(bytes_this_file);
 
         match append {
             Ok(()) => {
@@ -661,7 +822,8 @@ where
                     // tail is zero padding rather than real data.
                     Some(msg) => {
                         state.errors += 1;
-                        log(
+                        emit(
+                            on_log,
                             LogLevel::Warn,
                             &entry.name,
                             LogMsg::new(
@@ -669,14 +831,13 @@ where
                                 format!("added with padding after a read failure: {msg}"),
                             )
                             .arg("error", msg),
-                            on_log,
                         );
                     }
-                    None => log(
+                    None => emit(
+                        on_log,
                         LogLevel::Info,
                         &entry.name,
                         LogMsg::new("log.addedFile", "added").arg("bytes", size.to_string()),
-                        on_log,
                     ),
                 }
             }
@@ -684,51 +845,291 @@ where
             Err(e) => return Err(e),
         }
 
-        let bps = state.rate.sample(state.bytes_done);
-        on_progress(Progress {
-            files_done: state.files_done,
-            files_total: est.files,
-            bytes_done: state.bytes_done,
-            bytes_total: est.payload_bytes,
-            bps,
-            eta_secs: eta(est.payload_bytes, state.bytes_done, bps),
-        });
+        on_progress(progress_of(state, est));
     }
 
-    builder.into_inner()?.flush()?;
+    sink.finish()?;
 
+    // Nothing is left to do, so the estimate is no longer an estimate.
     on_progress(Progress {
-        files_done: state.files_done,
-        files_total: est.files,
-        bytes_done: state.bytes_done,
-        bytes_total: est.payload_bytes,
-        bps: state.rate.sample(state.bytes_done),
         eta_secs: Some(0),
+        ..progress_of(state, est)
     });
     Ok(())
 }
 
-fn append_dir<W: Write>(
-    builder: &mut tar::Builder<W>,
-    entry: &Entry,
-    disk_path: &Path,
+/// Shared by every `SolidReader`.
+///
+/// In solid mode the readers are the only place a byte can be observed:
+/// `push_archive_entries` takes the whole batch and does not come back until
+/// the last file has been compressed. Everything the tar loop would do between
+/// entries therefore has to happen inside `read`.
+struct SolidCtx<'c> {
+    state: &'c mut RunState,
+    est: &'c Estimate,
+    on_progress: &'c mut dyn FnMut(Progress),
+    on_log: &'c mut dyn FnMut(LogEntry),
+    /// Total bytes at the last progress event, so that a 4 KiB read does not
+    /// produce a UI update.
+    reported_at: u64,
+}
+
+/// How much has to be read before the progress bar is worth moving again.
+///
+/// Every format reports from inside the reader, because that is the only place
+/// a byte is visible while a single large file is being written — and an LZMA2
+/// pass over one can run for tens of seconds.
+const REPORT_EVERY_BYTES: u64 = 1 << 20;
+
+impl SolidCtx<'_> {
+    fn progress(&mut self) {
+        (self.on_progress)(progress_of(self.state, self.est));
+        self.reported_at = self.state.bytes_done;
+    }
+}
+
+/// Where the run has got to. Sampling the rate is a side effect, so this is
+/// called once per report rather than per field.
+fn progress_of(state: &mut RunState, est: &Estimate) -> Progress {
+    let bps = state.rate.sample(state.bytes_done);
+    // The smoothed rate needs a couple of samples to say anything. A run that
+    // finishes before then still moved real bytes in real time, so fall back to
+    // the plain average rather than reporting a dash.
+    let bps = if bps == 0 {
+        let secs = state.rate.elapsed();
+        if secs > 0.0 {
+            (state.bytes_done as f64 / secs) as u64
+        } else {
+            0
+        }
+    } else {
+        bps
+    };
+    Progress {
+        files_done: state.files_done,
+        files_total: est.files,
+        bytes_done: state.bytes_done,
+        bytes_total: est.payload_bytes,
+        bps,
+        eta_secs: eta(est.payload_bytes, state.bytes_done, bps),
+    }
+}
+
+/// One file inside a solid block.
+///
+/// Opens on the first read and drops the handle at EOF, because
+/// `push_archive_entries` wants every reader up front and a staged tree can
+/// hold hundreds of thousands of files. At most one is open at a time.
+struct SolidReader<'c> {
+    path: PathBuf,
+    name: String,
+    file: Option<File>,
+    opened: bool,
+    done: bool,
+    bytes: u64,
+    cancel: Arc<AtomicBool>,
+    ctx: Rc<RefCell<SolidCtx<'c>>>,
+}
+
+impl SolidReader<'_> {
+    /// Closes the entry out: releases the handle and writes the log line the
+    /// tar loop would have written once `append_data` returned.
+    fn close(&mut self, error: Option<String>) {
+        if self.done {
+            return;
+        }
+        self.done = true;
+        self.file = None;
+
+        let mut ctx = self.ctx.borrow_mut();
+        ctx.state.files_done += 1;
+        match error {
+            Some(msg) => {
+                ctx.state.errors += 1;
+                let line = LogMsg::new(
+                    "log.truncated",
+                    format!("added short after a read failure: {msg}"),
+                )
+                .arg("error", msg);
+                emit(ctx.on_log, LogLevel::Warn, &self.name, line);
+            }
+            None => {
+                let line =
+                    LogMsg::new("log.addedFile", "added").arg("bytes", self.bytes.to_string());
+                emit(ctx.on_log, LogLevel::Info, &self.name, line);
+            }
+        }
+        ctx.progress();
+    }
+}
+
+impl Read for SolidReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.done {
+            return Ok(0);
+        }
+        if self.cancel.load(Ordering::Relaxed) {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, CANCELLED));
+        }
+
+        if !self.opened {
+            self.opened = true;
+            match File::open(&self.path) {
+                Ok(f) => self.file = Some(f),
+                Err(e) => {
+                    // The probe in `write_all_solid` found this file readable,
+                    // so something has changed underneath us. The block is
+                    // already committed to holding this entry, so it is written
+                    // short rather than the whole run being failed.
+                    self.close(Some(e.to_string()));
+                    return Ok(0);
+                }
+            }
+        }
+
+        match self.file.as_mut().unwrap().read(buf) {
+            Ok(0) => {
+                self.close(None);
+                Ok(0)
+            }
+            Ok(n) => {
+                self.bytes += n as u64;
+                let mut ctx = self.ctx.borrow_mut();
+                ctx.state.bytes_done = ctx.state.bytes_done.saturating_add(n as u64);
+                if ctx.state.bytes_done - ctx.reported_at >= REPORT_EVERY_BYTES {
+                    ctx.progress();
+                }
+                Ok(n)
+            }
+            Err(e) => {
+                self.close(Some(e.to_string()));
+                Ok(0)
+            }
+        }
+    }
+}
+
+/// Solid 7z: one shared LZMA2 stream for every file.
+///
+/// Cannot go through `EntrySink`, because `push_archive_entries` wants the
+/// whole batch at once. The per-entry work `write_all` does between calls
+/// happens inside `SolidReader` instead.
+#[allow(clippy::too_many_arguments)]
+fn write_all_solid(
+    mut writer: ArchiveWriter<BufWriter<File>>,
+    entries: &[Entry],
+    est: &Estimate,
+    cancel: &Arc<AtomicBool>,
+    state: &mut RunState,
+    on_progress: &mut dyn FnMut(Progress),
+    on_log: &mut dyn FnMut(LogEntry),
 ) -> io::Result<()> {
-    let mtime = std::fs::metadata(disk_path)
+    // Directories carry no stream, so they go in one at a time, ahead of the
+    // block.
+    for entry in entries.iter().filter(|e| e.is_dir) {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, CANCELLED));
+        }
+        let Some(disk_path) = entry.path.as_ref() else {
+            continue;
+        };
+        match writer.push_archive_entry::<&[u8]>(sevenz_entry(entry, disk_path), None) {
+            Ok(_) => {
+                state.dirs_done += 1;
+                emit(
+                    on_log,
+                    LogLevel::Info,
+                    &entry.name,
+                    LogMsg::new("log.addedDir", "added folder"),
+                );
+            }
+            Err(e) => {
+                state.errors += 1;
+                emit(
+                    on_log,
+                    LogLevel::Error,
+                    &entry.name,
+                    LogMsg::new("log.dirFailed", format!("could not add the directory: {e}"))
+                        .arg("error", e.to_string()),
+                );
+            }
+        }
+    }
+
+    // Every file has to be handed over before any of them is compressed, so an
+    // unreadable one has to be found now. The tar loop gets skip-and-continue
+    // for free by opening as it goes; here it costs a probe.
+    let mut batch: Vec<ArchiveEntry> = Vec::new();
+    let mut sources: Vec<(PathBuf, String)> = Vec::new();
+    for entry in entries.iter().filter(|e| !e.is_dir) {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, CANCELLED));
+        }
+        let Some(disk_path) = entry.path.as_ref() else {
+            continue;
+        };
+        if let Err(e) = File::open(disk_path) {
+            state.errors += 1;
+            state.skipped += 1;
+            emit(
+                on_log,
+                LogLevel::Error,
+                &entry.name,
+                LogMsg::new("log.skipped", format!("skipped: {e}")).arg("error", e.to_string()),
+            );
+            continue;
+        }
+        batch.push(sevenz_entry(entry, disk_path));
+        sources.push((disk_path.clone(), entry.name.clone()));
+    }
+
+    // The context borrows `state` and both callbacks for as long as the readers
+    // live. `push_archive_entries` takes them by value and drops them, and the
+    // `Rc` goes out of scope with the block, which releases the borrows.
+    if !batch.is_empty() {
+        let ctx = Rc::new(RefCell::new(SolidCtx {
+            state,
+            est,
+            on_progress,
+            on_log,
+            reported_at: 0,
+        }));
+        let readers: Vec<SourceReader<SolidReader>> = sources
+            .into_iter()
+            .map(|(path, name)| {
+                SourceReader::new(SolidReader {
+                    path,
+                    name,
+                    file: None,
+                    opened: false,
+                    done: false,
+                    bytes: 0,
+                    cancel: Arc::clone(cancel),
+                    ctx: Rc::clone(&ctx),
+                })
+            })
+            .collect();
+
+        writer
+            .push_archive_entries(batch, readers)
+            .map_err(sevenz_io)?;
+    }
+
+    writer.finish()?.flush()?;
+
+    // Nothing is left to do, so the estimate is no longer an estimate.
+    on_progress(Progress {
+        eta_secs: Some(0),
+        ..progress_of(state, est)
+    });
+    Ok(())
+}
+
+fn dir_mtime(disk_path: &Path) -> u64 {
+    std::fs::metadata(disk_path)
         .and_then(|m| m.modified())
         .map(fsutil::unix_secs)
-        .unwrap_or(0);
-
-    let mut header = tar::Header::new_gnu();
-    header.set_entry_type(tar::EntryType::Directory);
-    header.set_size(0);
-    header.set_mode(0o755);
-    header.set_mtime(mtime);
-    header.set_uid(0);
-    header.set_gid(0);
-
-    // tar convention: directory names carry a trailing slash.
-    let name = format!("{}/", entry.name);
-    builder.append_data(&mut header, name, io::empty())
+        .unwrap_or(0)
 }
 
 fn eta(total: u64, done: u64, bps: u64) -> Option<u64> {
@@ -1114,6 +1515,7 @@ mod tests {
                 compression: Compression::Gzip,
                 gzip_level: 6,
                 path_mode: PathMode::FoldersOnly,
+                ..OutputOptions::default()
             },
             cancel,
             |_| {},
@@ -1144,6 +1546,341 @@ mod tests {
         assert!(summary.cancelled);
         assert!(!summary.ok);
         assert!(!out.exists(), "a cancelled run must not leave an archive");
+    }
+
+
+    fn sevenz_options(solid: bool) -> OutputOptions {
+        OutputOptions {
+            compression: Compression::SevenZ,
+            sevenz_solid: solid,
+            ..OutputOptions::default()
+        }
+    }
+
+    fn sevenz_names(path: &Path) -> Vec<String> {
+        let reader = sevenz_rust2::ArchiveReader::open(path, Default::default()).unwrap();
+        reader
+            .archive()
+            .files
+            .iter()
+            .map(|f| f.name.clone())
+            .collect()
+    }
+
+    fn sevenz_file(path: &Path, name: &str) -> Vec<u8> {
+        let mut reader = sevenz_rust2::ArchiveReader::open(path, Default::default()).unwrap();
+        reader.read_file(name).unwrap()
+    }
+
+    /// The whole point of the format, and the one thing a bad encoder chain
+    /// would break silently.
+    #[test]
+    fn sevenz_output_is_readable_and_smaller_than_the_estimate() {
+        let t = TempTree::new("sevenz");
+        t.file("big.txt", 200_000);
+        let (arena, root, ctx) = scan_fixture(&t);
+
+        let entries = entries_of(&arena, root, &ctx);
+        let est = estimate(&entries);
+        let out = t.0.join("..").join("tree-archiver-sevenz-out.7z");
+        let cancel = Arc::new(AtomicBool::new(false));
+        let summary = run(&entries, &out, sevenz_options(false), cancel, |_| {}, |_| {});
+
+        assert!(summary.ok, "7z run failed: {summary:?}");
+        assert_eq!(summary.errors, 0);
+        assert!(
+            summary.bytes_written < est.tar_bytes,
+            "7z wrote {} bytes, the uncompressed estimate was {}",
+            summary.bytes_written,
+            est.tar_bytes
+        );
+
+        let listed = sevenz_names(&out);
+        assert!(listed.iter().any(|n| n.ends_with("big.txt")), "{listed:?}");
+        let _ = fs::remove_file(&out);
+    }
+
+    /// Solid and non-solid must differ only in how the bytes are packed. If the
+    /// two ever disagree about what is *in* the archive, one of the two paths
+    /// has dropped an entry.
+    #[test]
+    fn solid_and_non_solid_hold_the_same_entries() {
+        let t = TempTree::new("solid");
+        t.file("keep/a.txt", 20_000);
+        t.file("keep/b.txt", 20_000);
+        t.file("keep/nested/c.txt", 20_000);
+        let (arena, root, ctx) = scan_fixture(&t);
+        let entries = entries_of(&arena, root, &ctx);
+
+        let loose = t.0.join("..").join("tree-archiver-solid-loose.7z");
+        let solid = t.0.join("..").join("tree-archiver-solid-solid.7z");
+
+        let a = run(
+            &entries,
+            &loose,
+            sevenz_options(false),
+            Arc::new(AtomicBool::new(false)),
+            |_| {},
+            |_| {},
+        );
+        let b = run(
+            &entries,
+            &solid,
+            sevenz_options(true),
+            Arc::new(AtomicBool::new(false)),
+            |_| {},
+            |_| {},
+        );
+
+        assert!(a.ok && b.ok, "{a:?} {b:?}");
+        assert_eq!(a.files_written, b.files_written);
+        assert_eq!(a.dirs_written, b.dirs_written);
+
+        let mut names_a = sevenz_names(&loose);
+        let mut names_b = sevenz_names(&solid);
+        names_a.sort();
+        names_b.sort();
+        assert_eq!(names_a, names_b);
+
+        // Three identical files in one stream compress better than three
+        // streams that cannot see each other.
+        assert!(
+            b.bytes_written < a.bytes_written,
+            "solid wrote {} bytes, a stream per file wrote {}",
+            b.bytes_written,
+            a.bytes_written
+        );
+
+        let _ = fs::remove_file(&loose);
+        let _ = fs::remove_file(&solid);
+    }
+
+    /// Extract-and-compare: the header can look right while the payload is
+    /// mangled.
+    #[test]
+    fn a_sevenz_entry_reads_back_byte_for_byte() {
+        let t = TempTree::new("szround");
+        t.file("keep/a.txt", 4096);
+        let original = fs::read(t.0.join("keep").join("a.txt")).unwrap();
+        let (arena, root, ctx) = scan_fixture(&t);
+        let entries = entries_of(&arena, root, &ctx);
+
+        for (tag, solid) in [("loose", false), ("solid", true)] {
+            let out = t.0.join("..").join(format!("tree-archiver-szround-{tag}.7z"));
+            let summary = run(
+                &entries,
+                &out,
+                sevenz_options(solid),
+                Arc::new(AtomicBool::new(false)),
+                |_| {},
+                |_| {},
+            );
+            assert!(summary.ok, "{tag}: {summary:?}");
+
+            let name = sevenz_names(&out)
+                .into_iter()
+                .find(|n| n.ends_with("a.txt"))
+                .unwrap_or_else(|| panic!("{tag}: a.txt is missing"));
+            assert_eq!(sevenz_file(&out, &name), original, "{tag} payload differs");
+            let _ = fs::remove_file(&out);
+        }
+    }
+
+    /// The rule that outlives every format: an unreadable file is logged and
+    /// skipped, and the archive still completes. Solid mode has to work for
+    /// this rather than getting it for free.
+    #[test]
+    fn a_missing_file_is_skipped_in_both_sevenz_modes() {
+        for (tag, solid) in [("loose", false), ("solid", true)] {
+            let t = TempTree::new(&format!("szmiss-{tag}"));
+            t.file("a.txt", 10);
+            t.file("vanishes.txt", 10);
+            let (arena, root, ctx) = scan_fixture(&t);
+            let entries = entries_of(&arena, root, &ctx);
+            fs::remove_file(t.0.join("vanishes.txt")).unwrap();
+
+            let out = t.0.join("..").join(format!("tree-archiver-szmiss-{tag}.7z"));
+            let mut logs = Vec::new();
+            let summary = run(
+                &entries,
+                &out,
+                sevenz_options(solid),
+                Arc::new(AtomicBool::new(false)),
+                |_| {},
+                |l| logs.push(l),
+            );
+
+            assert!(summary.ok, "{tag}: {summary:?}");
+            assert_eq!(summary.errors, 1, "{tag}");
+            assert_eq!(summary.skipped, 1, "{tag}");
+            assert_eq!(summary.files_written, 1, "{tag}");
+            assert!(
+                logs.iter()
+                    .any(|l| l.level == LogLevel::Error && l.path.contains("vanishes.txt")),
+                "{tag}: nothing was logged about the missing file"
+            );
+
+            let listed = sevenz_names(&out);
+            assert!(listed.iter().any(|n| n.ends_with("a.txt")), "{tag}");
+            assert!(!listed.iter().any(|n| n.ends_with("vanishes.txt")), "{tag}");
+            let _ = fs::remove_file(&out);
+        }
+    }
+
+    #[test]
+    fn cancelling_a_sevenz_run_deletes_the_partial_archive() {
+        for (tag, solid) in [("loose", false), ("solid", true)] {
+            let t = TempTree::new(&format!("szcancel-{tag}"));
+            t.file("a.txt", 1000);
+            let (arena, root, ctx) = scan_fixture(&t);
+            let entries = entries_of(&arena, root, &ctx);
+
+            let out = t.0.join("..").join(format!("tree-archiver-szcancel-{tag}.7z"));
+            let summary = run(
+                &entries,
+                &out,
+                sevenz_options(solid),
+                Arc::new(AtomicBool::new(true)),
+                |_| {},
+                |_| {},
+            );
+
+            assert!(summary.cancelled, "{tag}");
+            assert!(!summary.ok, "{tag}");
+            assert!(!out.exists(), "{tag}: a cancelled run left an archive behind");
+        }
+    }
+
+    /// Solid mode reports progress from inside the readers, which is the only
+    /// place a byte is visible once the batch has been handed over.
+    #[test]
+    fn solid_progress_reaches_the_full_payload() {
+        let t = TempTree::new("szprogress");
+        t.file("a.bin", 5000);
+        t.file("b.bin", 7000);
+        let (arena, root, ctx) = scan_fixture(&t);
+        let entries = entries_of(&arena, root, &ctx);
+        let est = estimate(&entries);
+
+        let out = t.0.join("..").join("tree-archiver-szprogress-out.7z");
+        let mut last: Option<Progress> = None;
+        let summary = run(
+            &entries,
+            &out,
+            sevenz_options(true),
+            Arc::new(AtomicBool::new(false)),
+            |p| last = Some(p),
+            |_| {},
+        );
+
+        assert!(summary.ok);
+        let last = last.expect("progress was never reported");
+        assert_eq!(last.bytes_done, est.payload_bytes);
+        assert_eq!(last.files_done, est.files);
+        assert_eq!(last.eta_secs, Some(0));
+        let _ = fs::remove_file(&out);
+    }
+
+
+    /// The complaint that started this: one large file meant one progress
+    /// event, at the end. With 7z that is tens of seconds of a window that
+    /// looks hung. Every format now reports as it reads.
+    #[test]
+    fn a_single_large_file_reports_while_it_is_being_written() {
+        for (tag, opts) in [
+            ("tar", OutputOptions::default()),
+            ("7z", sevenz_options(false)),
+            ("7z-solid", sevenz_options(true)),
+        ] {
+            let t = TempTree::new(&format!("midfile-{tag}"));
+            // Comfortably more than one report interval's worth of bytes.
+            t.file("big.bin", 4 << 20);
+            let (arena, root, ctx) = scan_fixture(&t);
+            let entries = entries_of(&arena, root, &ctx);
+            assert_eq!(entries.iter().filter(|e| !e.is_dir).count(), 1, "{tag}");
+
+            let out = t.0.join("..").join(format!("tree-archiver-midfile-{tag}"));
+            let mut seen: Vec<Progress> = Vec::new();
+            let summary = run(
+                &entries,
+                &out,
+                opts,
+                Arc::new(AtomicBool::new(false)),
+                |p| seen.push(p),
+                |_| {},
+            );
+            assert!(summary.ok, "{tag}: {summary:?}");
+
+            // One file, so anything past the opening event and the closing one
+            // can only have come from inside the read.
+            assert!(
+                seen.len() > 2,
+                "{tag}: only {} progress events for an 8 MB file",
+                seen.len()
+            );
+
+            // The panel is filled in from the first event rather than showing
+            // dashes until the first file lands.
+            let first = seen.first().unwrap();
+            assert_eq!(first.bytes_done, 0, "{tag}");
+            assert_eq!(first.files_total, 1, "{tag}");
+            assert!(first.bytes_total > 0, "{tag}");
+
+            // Bytes only ever move forwards, and land exactly on the payload.
+            let mut prev = 0;
+            for p in &seen {
+                assert!(p.bytes_done >= prev, "{tag}: progress went backwards");
+                prev = p.bytes_done;
+            }
+            let last = seen.last().unwrap();
+            assert_eq!(last.bytes_done, last.bytes_total, "{tag}");
+            assert_eq!(last.files_done, last.files_total, "{tag}");
+
+            let _ = fs::remove_file(&out);
+        }
+    }
+
+    /// Whatever the last event says has to match what the summary says, or the
+    /// panel contradicts its own completion message.
+    #[test]
+    fn the_last_progress_event_agrees_with_the_summary() {
+        for (tag, opts) in [
+            ("tar", OutputOptions::default()),
+            ("gzip", OutputOptions { compression: Compression::Gzip, ..OutputOptions::default() }),
+            ("7z", sevenz_options(false)),
+            ("7z-solid", sevenz_options(true)),
+        ] {
+            let t = TempTree::new(&format!("agree-{tag}"));
+            // A big file first and a tail of small ones: the shape that hid the
+            // bug, because the small ones all finished inside one tick.
+            t.file("a-big.bin", 2 << 20);
+            for i in 0..12 {
+                t.file(&format!("small-{i:02}.txt"), 64);
+            }
+            let (arena, root, ctx) = scan_fixture(&t);
+            let entries = entries_of(&arena, root, &ctx);
+
+            let out = t.0.join("..").join(format!("tree-archiver-agree-{tag}"));
+            let mut last: Option<Progress> = None;
+            let summary = run(
+                &entries,
+                &out,
+                opts,
+                Arc::new(AtomicBool::new(false)),
+                |p| last = Some(p),
+                |_| {},
+            );
+
+            assert!(summary.ok, "{tag}: {summary:?}");
+            let last = last.expect("no progress at all");
+            assert_eq!(last.files_done, summary.files_written, "{tag}");
+            assert_eq!(last.files_done, last.files_total, "{tag}");
+            assert_eq!(last.bytes_done, last.bytes_total, "{tag}");
+            // A run too short to smooth a rate still reports one, rather than
+            // leaving the speed as a dash.
+            assert!(last.bps > 0, "{tag}: no throughput reported");
+            let _ = fs::remove_file(&out);
+        }
     }
 
     #[test]

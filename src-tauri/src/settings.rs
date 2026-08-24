@@ -138,6 +138,48 @@ mod tests {
         assert_eq!(s.output.path_mode, PathMode::FoldersOnly);
         assert_eq!(s.output.compression, Compression::None);
         assert_eq!(s.output.gzip_level, 6);
+        assert_eq!(s.output.sevenz_level, 6);
+        assert!(!s.output.sevenz_solid);
+    }
+
+    /// A 7z choice has to survive a save and a reload, including the two
+    /// settings that only 7z uses.
+    #[test]
+    fn a_sevenz_choice_round_trips() {
+        let s = Settings {
+            output: OutputOptions {
+                compression: Compression::SevenZ,
+                sevenz_level: 9,
+                sevenz_solid: true,
+                ..OutputOptions::default()
+            },
+            ..Settings::default()
+        };
+
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains(r#""compression":"7z""#), "{json}");
+
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.output.compression, Compression::SevenZ);
+        assert_eq!(back.output.sevenz_level, 9);
+        assert!(back.output.sevenz_solid);
+    }
+
+    /// A settings file written by 1.2.1 predates 7z entirely. The missing keys
+    /// must fall back rather than making the file unreadable: load() discards
+    /// the whole thing on a parse failure.
+    #[test]
+    fn a_settings_file_from_before_sevenz_still_loads() {
+        let s: Settings = serde_json::from_str(
+            r#"{"version":1,"theme":"dark","language":"pl",
+                "sort":{"by":"name","dir":"asc"},
+                "output":{"compression":"gzip","gzipLevel":9,"pathMode":"fullPath"}}"#,
+        )
+        .unwrap();
+        assert_eq!(s.output.compression, Compression::Gzip);
+        assert_eq!(s.output.gzip_level, 9);
+        assert_eq!(s.output.sevenz_level, 6);
+        assert!(!s.output.sevenz_solid);
     }
 
     #[test]
@@ -152,6 +194,7 @@ mod tests {
                 compression: Compression::Gzip,
                 gzip_level: 9,
                 path_mode: PathMode::FullPath,
+                ..OutputOptions::default()
             },
             ..Settings::default()
         };

@@ -25,7 +25,8 @@ installed, which is why the release publishes it as a portable download.
 ### Prerequisites
 
 - **Rust**, MSVC toolchain — `rustup default stable-x86_64-pc-windows-msvc`.
-  The crate sets `rust-version = "1.77"`.
+  The crate sets `rust-version = "1.93"`, which is what the 7z encoder
+  (`sevenz-rust2`) requires.
 - **Visual Studio Build Tools** with the *Desktop development with C++* workload.
   This supplies `link.exe`; without it the Rust link step fails.
 - **Node.js 20.19+ or 22.12+** (Vite 7's floor). CI uses 22.
@@ -44,7 +45,7 @@ Tests are Rust-side and run without building the frontend:
 
 ```bash
 cd src-tauri
-cargo test             # 77 tests: 69 unit, 8 end-to-end
+cargo test             # 128 tests: 119 unit, 9 end-to-end
 ```
 
 The end-to-end suite writes real trees under `%TEMP%`, including a directory

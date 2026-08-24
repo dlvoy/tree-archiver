@@ -28,6 +28,7 @@ export const de: Record<keyof typeof en, Phrase> = {
   "toolbar.stop": "Anhalten",
   "toolbar.scanned": "{files} Dateien · {bytes}",
   "toolbar.settings": "Einstellungen",
+  "toolbar.about": "Über Tree Archiver",
 
   // ---------------------------------------------------------------- theme and language
   "theme.label": "Design: {name}",
@@ -80,6 +81,10 @@ export const de: Record<keyof typeof en, Phrase> = {
   "build.compression": "Komprimierung",
   "build.compressionNone": "Keine (.tar)",
   "build.compressionGzip": "gzip (.tar.gz)",
+  "build.compression7z": "7z (.7z)",
+  "build.solid": "Solides Archiv",
+  "build.solidHint":
+    "Packt alle Dateien in einen gemeinsamen Datenstrom. Kleiner bei vielen kleinen Dateien, dafür gröberer Fortschritt und langsameres Entpacken einzelner Dateien.",
   "build.level": "Stufe {level}",
   "build.faster": "schneller",
   "build.smaller": "kleiner",
@@ -98,6 +103,7 @@ export const de: Record<keyof typeof en, Phrase> = {
   "build.saveAs": "Archiv speichern unter",
   "build.filterTar": "Tar-Archiv",
   "build.filterTarGz": "Gzip-Tar-Archiv",
+  "build.filter7z": "7z-Archiv",
 
   // ---------------------------------------------------------------- progress
   "progress.building": "Archiv wird erstellt",
@@ -141,6 +147,7 @@ export const de: Record<keyof typeof en, Phrase> = {
   "log.dirFailed": "Ordner konnte nicht hinzugefügt werden: {error}",
   "log.skipped": "übersprungen: {error}",
   "log.padded": "nach Lesefehler mit Füllbytes hinzugefügt: {error}",
+  "log.truncated": "nach Lesefehler unvollständig hinzugefügt: {error}",
   "log.createFailed": "Archiv kann nicht erstellt werden: {error}",
   "log.writeFailed": "Schreiben des Archivs fehlgeschlagen: {error}",
   "log.cancelledDeleted": "abgebrochen; das unvollständige Archiv wurde gelöscht",
@@ -192,5 +199,14 @@ export const de: Record<keyof typeof en, Phrase> = {
   "app.addFoldersTitle": "Ordner hinzufügen",
   "app.addFilesTitle": "Dateien hinzufügen",
   "app.dismiss": "Schließen",
+
+  // ---------------------------------------------------------------- über
+  "about.title": "Über",
+  "about.tagline": "Archive großer Verzeichnisbäume planen und erstellen.",
+  "about.license": "MIT-LIZENZ",
+  "about.licenseTitle": "MIT-Lizenz",
+  "about.releaseTitle": "Versionshinweise zu {version}",
+  "about.builtLabel": "Build-Datum",
+  "about.commitLabel": "Commit",
   "app.close": "Schließen",
 };

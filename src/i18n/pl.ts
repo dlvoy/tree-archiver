@@ -29,6 +29,7 @@ export const pl: Record<keyof typeof en, Phrase> = {
   "toolbar.stop": "Zatrzymaj",
   "toolbar.scanned": "{files} plików · {bytes}",
   "toolbar.settings": "Ustawienia",
+  "toolbar.about": "O programie Tree Archiver",
 
   // ---------------------------------------------------------------- theme and language
   "theme.label": "Motyw: {name}",
@@ -83,6 +84,10 @@ export const pl: Record<keyof typeof en, Phrase> = {
   "build.compression": "Kompresja",
   "build.compressionNone": "Brak (.tar)",
   "build.compressionGzip": "gzip (.tar.gz)",
+  "build.compression7z": "7z (.7z)",
+  "build.solid": "Archiwum ciągłe",
+  "build.solidHint":
+    "Pakuje wszystkie pliki w jeden wspólny strumień. Mniejsze przy wielu małych plikach, kosztem mniej dokładnego postępu i wolniejszego wypakowania pojedynczego pliku.",
   "build.level": "Poziom {level}",
   "build.faster": "szybciej",
   "build.smaller": "mniejszy",
@@ -101,6 +106,7 @@ export const pl: Record<keyof typeof en, Phrase> = {
   "build.saveAs": "Zapisz archiwum jako",
   "build.filterTar": "Archiwum tar",
   "build.filterTarGz": "Archiwum tar z gzip",
+  "build.filter7z": "Archiwum 7z",
 
   // ---------------------------------------------------------------- progress
   "progress.building": "Budowanie archiwum",
@@ -148,6 +154,7 @@ export const pl: Record<keyof typeof en, Phrase> = {
   "log.dirFailed": "nie udało się dodać folderu: {error}",
   "log.skipped": "pominięto: {error}",
   "log.padded": "dodano z wypełnieniem po błędzie odczytu: {error}",
+  "log.truncated": "dodano niepełny po błędzie odczytu: {error}",
   "log.createFailed": "nie można utworzyć archiwum: {error}",
   "log.writeFailed": "zapis archiwum nie powiódł się: {error}",
   "log.cancelledDeleted": "anulowano; niepełne archiwum zostało usunięte",
@@ -197,5 +204,14 @@ export const pl: Record<keyof typeof en, Phrase> = {
   "app.addFoldersTitle": "Dodaj foldery",
   "app.addFilesTitle": "Dodaj pliki",
   "app.dismiss": "Zamknij",
+
+  // ---------------------------------------------------------------- o programie
+  "about.title": "O programie",
+  "about.tagline": "Planuj i buduj archiwa dużych drzew katalogów.",
+  "about.license": "LICENCJA MIT",
+  "about.licenseTitle": "Licencja MIT",
+  "about.releaseTitle": "Informacje o wydaniu {version}",
+  "about.builtLabel": "Data kompilacji",
+  "about.commitLabel": "Commit",
   "app.close": "Zamknij",
 };

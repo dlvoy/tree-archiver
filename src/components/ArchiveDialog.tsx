@@ -12,6 +12,18 @@ import { useT } from "../i18n/context";
 import type { Key } from "../i18n";
 import * as fmt from "../lib/format";
 
+/** Everything that differs per format, in one place rather than four. */
+const FORMATS: { c: Compression; label: Key; filter: Key; ext: string }[] = [
+  { c: "none", label: "build.compressionNone", filter: "build.filterTar", ext: "tar" },
+  { c: "gzip", label: "build.compressionGzip", filter: "build.filterTarGz", ext: "tar.gz" },
+  { c: "7z", label: "build.compression7z", filter: "build.filter7z", ext: "7z" },
+];
+
+/** Every extension the app writes, so switching format replaces rather than appends. */
+const EXT_RE = /\.(tar(\.gz)?|7z)$/i;
+
+const formatOf = (c: Compression) => FORMATS.find((f) => f.c === c) ?? FORMATS[0];
+
 const MODES: { mode: PathMode; label: Key; blurb: Key }[] = [
   { mode: "foldersOnly", label: "build.modeFoldersOnly", blurb: "build.blurbFoldersOnly" },
   { mode: "commonRoot", label: "build.modeCommonRoot", blurb: "build.blurbCommonRoot" },
@@ -83,22 +95,17 @@ export function ArchiveDialog({
 
   // Keep the suggested name's extension honest about the chosen compression.
   useEffect(() => {
-    const ext = options.compression === "gzip" ? "tar.gz" : "tar";
-    setSuggestion((s) => s.replace(/\.tar(\.gz)?$/i, "") + "." + ext);
-    setOutPath((p) => (p ? p.replace(/\.tar(\.gz)?$/i, "") + "." + ext : p));
+    const { ext } = formatOf(options.compression);
+    setSuggestion((s) => s.replace(EXT_RE, "") + "." + ext);
+    setOutPath((p) => (p ? p.replace(EXT_RE, "") + "." + ext : p));
   }, [options.compression]);
 
   const pick = async () => {
-    const ext = options.compression === "gzip" ? "tar.gz" : "tar";
+    const format = formatOf(options.compression);
     const chosen = await save({
       title: t("build.saveAs"),
       defaultPath: suggestion,
-      filters: [
-        {
-          name: options.compression === "gzip" ? t("build.filterTarGz") : t("build.filterTar"),
-          extensions: [ext],
-        },
-      ],
+      filters: [{ name: t(format.filter), extensions: [format.ext] }],
     });
     if (chosen) setOutPath(chosen);
   };
@@ -120,6 +127,9 @@ export function ArchiveDialog({
   };
 
   const gz = options.compression === "gzip";
+  const sevenz = options.compression === "7z";
+  // Only an uncompressed tar has a size that can be predicted exactly.
+  const compressed = options.compression !== "none";
 
   const blocked = (mode: PathMode) =>
     mode === "foldersOnly"
@@ -204,14 +214,14 @@ export function ArchiveDialog({
       <div className="field">
         <span className="field__label">{t("build.compression")}</span>
         <div className="seg seg--wide">
-          {(["none", "gzip"] as Compression[]).map((c) => (
+          {FORMATS.map((f) => (
             <button
-              key={c}
+              key={f.c}
               type="button"
-              className={`seg__btn ${options.compression === c ? "seg__btn--on" : ""}`}
-              onClick={() => set({ compression: c })}
+              className={`seg__btn ${options.compression === f.c ? "seg__btn--on" : ""}`}
+              onClick={() => set({ compression: f.c })}
             >
-              {c === "none" ? t("build.compressionNone") : t("build.compressionGzip")}
+              {t(f.label)}
             </button>
           ))}
         </div>
@@ -235,6 +245,41 @@ export function ArchiveDialog({
             </span>
           </div>
         )}
+        {sevenz && (
+          <>
+            <div className="field__row field__row--slider">
+              <label className="slider__label" htmlFor="szlevel">
+                {t("build.level", { level: options.sevenzLevel })}
+              </label>
+              <input
+                id="szlevel"
+                className="slider"
+                type="range"
+                min={0}
+                max={9}
+                value={options.sevenzLevel}
+                onChange={(e) => set({ sevenzLevel: Number(e.target.value) })}
+              />
+              <span className="slider__ends">
+                <span>{t("build.faster")}</span>
+                <span>{t("build.smaller")}</span>
+              </span>
+            </div>
+            <label className="setting setting--check" htmlFor="szsolid">
+              <input
+                id="szsolid"
+                type="checkbox"
+                className="check"
+                checked={options.sevenzSolid}
+                onChange={(e) => set({ sevenzSolid: e.target.checked })}
+              />
+              <span className="setting__body">
+                <span className="setting__name">{t("build.solid")}</span>
+                <span className="setting__help">{t("build.solidHint")}</span>
+              </span>
+            </label>
+          </>
+        )}
       </div>
 
       <div className="titleblock">
@@ -244,9 +289,9 @@ export function ArchiveDialog({
           <Field label={t("build.files")} value={est ? fmt.count(est.files) : "—"} />
           <Field label={t("build.content")} value={est ? fmt.bytes(est.payloadBytes) : "—"} />
           <Field
-            label={gz ? t("build.maxSize") : t("build.archiveSize")}
+            label={compressed ? t("build.maxSize") : t("build.archiveSize")}
             value={est ? fmt.bytes(est.tarBytes) : "—"}
-            note={gz ? t("build.beforeCompression") : t("build.exact")}
+            note={compressed ? t("build.beforeCompression") : t("build.exact")}
             strong
           />
         </dl>

@@ -1,13 +1,17 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Dialogs for picking sources and output paths, plus revealing the finished archive. All filesystem work happens in Rust commands, so the webview is granted no filesystem access.",
+  "description": "Dialogs for picking sources and output paths, plus revealing the finished archive, and the release page the About dialog links to. All filesystem work happens in Rust commands, so the webview is granted no filesystem access.",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "dialog:allow-open",
     "dialog:allow-save",
     "dialog:allow-message",
-    "opener:allow-reveal-item-in-dir"
+    "opener:allow-reveal-item-in-dir",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://github.com/dlvoy/tree-archiver/*" }]
+    }
   ]
 }

@@ -27,6 +27,7 @@ export function Toolbar({
   onCycleTheme,
   onCycleLanguage,
   onOpenSettings,
+  onOpenAbout,
 }: {
   sort: SortKey;
   hasTree: boolean;
@@ -50,6 +51,7 @@ export function Toolbar({
   onCycleTheme: () => void;
   onCycleLanguage: () => void;
   onOpenSettings: () => void;
+  onOpenAbout: () => void;
 }) {
   const t = useT();
 
@@ -135,6 +137,16 @@ export function Toolbar({
           title={t("toolbar.settings")}
         >
           <CogMark />
+        </button>
+
+        <button
+          type="button"
+          className="btn btn--icon"
+          onClick={onOpenAbout}
+          aria-label={t("toolbar.about")}
+          title={t("toolbar.about")}
+        >
+          <InfoMark />
         </button>
       </div>
 
@@ -230,6 +242,16 @@ function CogMark() {
     <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round">
       <circle cx="8" cy="8" r="2.3" />
       <path d="M8 1.2l1 1.7 1.9-.5.4 2 1.9.7-.8 1.8.8 1.8-1.9.7-.4 2-1.9-.5-1 1.7-1-1.7-1.9.5-.4-2-1.9-.7.8-1.8-.8-1.8 1.9-.7.4-2 1.9.5z" />
+    </svg>
+  );
+}
+
+function InfoMark() {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round">
+      <circle cx="8" cy="8" r="6.2" />
+      <path d="M8 7.1v4.2" />
+      <path d="M8 4.7v.1" strokeWidth="1.7" />
     </svg>
   );
 }

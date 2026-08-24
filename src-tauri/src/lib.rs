@@ -73,6 +73,7 @@ pub fn run() {
             commands::explorer_status,
             commands::explorer_install,
             commands::explorer_uninstall,
+            commands::app_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Tree Archiver");

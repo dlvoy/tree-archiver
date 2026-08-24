@@ -1,11 +1,12 @@
 [package]
 name = "tree-archiver"
-version = "1.2.1"
-description = "Plan and build tar archives with an advanced include/exclude tree"
+version = "1.3.0"
+description = "Plan and build archives with an advanced include/exclude tree"
 authors = ["dominik.dzienia@gmail.com"]
 repository = "https://github.com/dlvoy/tree-archiver"
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.93"
+license = "MIT"
 
 [lib]
 name = "tree_archiver_lib"
@@ -24,6 +25,7 @@ tar = "0.4"
 flate2 = "1"
 dunce = "1"
 tauri-plugin-single-instance = "2"
+sevenz-rust2 = { version = "0.22", default-features = false, features = ["compress"] }
 
 [profile.release]
 codegen-units = 1

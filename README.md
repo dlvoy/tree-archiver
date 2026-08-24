@@ -1,7 +1,8 @@
 # Tree Archiver
 
-A Windows desktop app for planning tar archives of large directory trees, then
-building them. Rust + Tauri 2 behind a React tree view.
+A Windows desktop app for planning archives of large directory trees, then
+building them — as `.tar`, `.tar.gz` or `.7z`. Rust + Tauri 2 behind a React
+tree view.
 
 Existing tools make you choose between writing exclusion patterns blind and
 ticking thousands of individual files. This one lets you see each branch's size,
@@ -56,7 +57,7 @@ covering that whole branch, never as a list of the files inside it:
   "root": "C:\\Users\\Nick",
   "sources": ["C:\\Users\\Nick\\.android", "C:\\Users\\Nick\\.atom"],
   "sort": { "by": "size", "dir": "desc" },
-  "output": { "compression": "none", "gzipLevel": 6 },
+  "output": { "compression": "none", "gzipLevel": 6, "sevenzLevel": 6, "sevenzSolid": false },
   "rules": [
     { "path": ".android/avd", "scope": "tree", "action": "exclude" },
     { "path": ".atom/packages", "scope": "files", "action": "exclude" },
@@ -80,8 +81,20 @@ that no longer exists is reported rather than silently dropped.
 
 **Archive…** asks for an output path and shows the spec. For an uncompressed
 `.tar` the predicted size is exact — it is computed from the real tar block
-layout, not estimated. Choosing gzip keeps that number as a labelled upper
-bound.
+layout, not estimated. Choosing gzip or 7z keeps that number as a labelled
+upper bound.
+
+Three formats:
+
+| Format | What it writes |
+|---|---|
+| **None** | a plain `.tar`, the only one whose size is known in advance |
+| **gzip** | `.tar.gz`, level 1–9 |
+| **7z** | `.7z`, LZMA2 preset 0–9, optionally **solid** |
+
+A **solid** 7z packs every file into one shared stream. It is markedly smaller
+on a tree of many small files, but progress is reported more coarsely and
+extracting one file means decompressing what came before it. Off by default.
 
 While it runs you get a progress bar, throughput, ETA, and a collapsible log.
 
@@ -111,7 +124,7 @@ src-tauri/src/
   roots.rs               common-ancestor computation and rebuilds
   scan.rs                threaded directory walking
   plan.rs                plan format, rule compaction and application
-  archive.rs             tar writing, progress, error tolerance
+  archive.rs             tar and 7z writing, progress, error tolerance
   commands.rs            the IPC surface
 ```
 
@@ -125,9 +138,17 @@ one node's children at a time and caches them.
 cd src-tauri && cargo test
 ```
 
-77 tests. The unit tests cover check propagation, re-rooting, natural sort, plan
-compaction (including that compaction is a fixpoint over application), and the
-tar block arithmetic. The integration suite in `tests/end_to_end.rs` builds a
-real tree on disk to cover the Windows-specific hazards: paths past 260
-characters, a junction that points at its own ancestor, a file that disappears
-between planning and writing, and an extract-and-compare round trip.
+128 tests. The unit tests cover check propagation, re-rooting, natural sort,
+plan compaction (including that compaction is a fixpoint over application), the
+tar block arithmetic, and both 7z paths — a stream per file and one solid block
+— down to an extract-and-compare of the bytes. The integration suite in
+`tests/end_to_end.rs` builds a real tree on disk to cover the Windows-specific
+hazards: paths past 260 characters, a junction that points at its own ancestor,
+a file that disappears between planning and writing, and an extract-and-compare
+round trip.
+
+## Licence
+
+MIT — see [LICENSE.txt](LICENSE.txt). The text is compiled into the executable
+and shown by **About**, the ⓘ button in the toolbar, alongside the version, the
+build date and the commit the build was cut from.

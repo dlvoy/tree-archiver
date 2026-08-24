@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-08-24
+
+### Added
+
+- **7z**, a third compression choice beside none and gzip, writing a real
+  `.7z` rather than a tar inside one. An LZMA2 level from 0 to 9, and a
+  **Solid archive** checkbox that packs every file into one shared stream:
+  markedly smaller on a tree of many small files, at the cost of coarser
+  progress and slower extraction of any one file. Off by default, because a
+  stream per file is what keeps the per-file progress, the ETA and the
+  skip-an-unreadable-file rule working the way they do for tar.
+- An **About** dialog, opened from the ⓘ button in the toolbar. It carries the
+  version, the date the build was made and the commit it was cut from, so a
+  report can name the exact build. The version links to that release on GitHub.
+- The project now has a licence: MIT, in `LICENSE.txt`. The text is compiled
+  into the executable and shown in full from the About dialog, so it travels
+  with the application rather than only with the repository.
+
+### Changed
+
+- Building an archive needs Rust 1.93 to compile, up from 1.77, which is what
+  the 7z encoder requires. This affects building the app, not running it.
+- Preferences and plan files saved with 7z selected cannot be read by 1.2.1 or
+  earlier: that version rejects the unknown value, and falls back to default
+  preferences or refuses the plan outright. Choosing none or gzip leaves both
+  files readable by an older build as before.
+
+### Fixed
+
+- The progress panel could end a run disagreeing with the summary printed just
+  above it — four of 61 files beside a message saying 61 were written. The
+  final update of a run was being discarded, and it is the one carrying the
+  full count.
+- A run that finished in under a tenth of a second reported nothing at all and
+  left every figure in the panel as a dash. One too brief to measure a rate now
+  reports its average instead of a blank.
+- A single large file left the panel motionless until it was finished. Progress
+  is now reported as the file is read rather than once it is written, so the bar
+  moves within a file as well as between files. Most visible with 7z, where one
+  file can take tens of seconds.
+
 ## [1.2.1] - 2026-08-23
 
 ### Fixed
@@ -136,7 +177,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Archive entries are named relative to the root's parent, so extracting produces
   one top-level folder instead of scattering files into the current directory.
 
-[Unreleased]: https://github.com/dlvoy/tree-archiver/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/dlvoy/tree-archiver/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/dlvoy/tree-archiver/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/dlvoy/tree-archiver/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/dlvoy/tree-archiver/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/dlvoy/tree-archiver/compare/v1.0.0...v1.1.0
